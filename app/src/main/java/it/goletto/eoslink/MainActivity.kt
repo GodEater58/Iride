@@ -1,17 +1,19 @@
 package it.goletto.eoslink
 
 import android.Manifest
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.LaunchedEffect
 import it.goletto.eoslink.ui.EosLinkApp
+import it.goletto.eoslink.ui.theme.EosTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -21,6 +23,10 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
         super.onCreate(savedInstanceState)
 
         val perms = if (Build.VERSION.SDK_INT >= 33) {
@@ -31,7 +37,7 @@ class MainActivity : ComponentActivity() {
         permissionLauncher.launch(perms)
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            EosTheme(night = vm.night) {
                 val keepOn = vm.keepScreenOn
                 LaunchedEffect(keepOn) {
                     if (keepOn) {

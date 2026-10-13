@@ -56,4 +56,6 @@ object CanonProp {
 
 object CanonEvent {
     const val OBJECT_ADDED_EX = 0xC181
+    const val PROP_VALUE_CHANGED = 0xC189
+    const val AVAIL_LIST_CHANGED = 0xC18A
 }

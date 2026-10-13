@@ -24,7 +24,16 @@ jobs:
           gradle-version: '8.9'
 
       - name: Compila APK
-        run: gradle assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleDebug 2>&1 | tee build.log
+
+      - name: Segnala errori di compilazione
+        if: failure()
+        run: |
+          grep -E "^e: |error:|What went wrong" -A2 build.log | head -60 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
 
       - name: Rinomina APK
         run: cp app/build/outputs/apk/debug/app-debug.apk EosLink-build${{ github.run_number }}.apk

@@ -48,7 +48,7 @@ class CanonCamera(private val ptp: PtpIpClient, private val log: (String) -> Uni
         }
         if (PtpOp.CANON_SET_REMOTE_MODE in ops) check(ptp.transaction(PtpOp.CANON_SET_REMOTE_MODE, intArrayOf(1)), "SetRemoteMode")
         if (PtpOp.CANON_SET_EVENT_MODE in ops) check(ptp.transaction(PtpOp.CANON_SET_EVENT_MODE, intArrayOf(1)), "SetEventMode")
-        // La prima GetEvent restituisce lo stato completo: la scartiamo
+        // La prima GetEvent restituisce lo stato completo (proprietà e valori ammessi)
         repeat(2) { runCatching { pollEvents() } }
     }
 
@@ -56,6 +56,17 @@ class CanonCamera(private val ptp: PtpIpClient, private val log: (String) -> Uni
         if (!r.ok) log("$what: risposta ${hex(r.code)}")
         return r
     }
+
+    /** Valori correnti delle proprietà (es. Tv, Av, ISO) ricevuti dagli eventi. */
+    val props = java.util.concurrent.ConcurrentHashMap<Int, Int>()
+
+    /** Valori ammessi per ciascuna proprietà, nell'ordine in cui li elenca la fotocamera. */
+    val allowed = java.util.concurrent.ConcurrentHashMap<Int, IntArray>()
+
+    /** Cresce a ogni cambio di props/allowed: l'interfaccia aggiorna solo quando serve. */
+    @Volatile
+    var propsVersion = 0
+        private set
 
     /** Legge la coda eventi Canon e restituisce gli handle dei nuovi file creati. */
     fun pollEvents(): List<Int> {
@@ -68,11 +79,40 @@ class CanonCamera(private val ptp: PtpIpClient, private val log: (String) -> Uni
         while (off + 8 <= d.size) {
             val size = le32(d, off)
             val type = le32(d, off + 4)
-            if (size < 8 || type == 0) break
-            if (type == CanonEvent.OBJECT_ADDED_EX && off + 12 <= d.size) added.add(le32(d, off + 8))
+            if (size < 8 || type == 0 || off + size > d.size) break
+            when (type) {
+                CanonEvent.OBJECT_ADDED_EX -> if (size >= 12) added.add(le32(d, off + 8))
+                CanonEvent.PROP_VALUE_CHANGED -> if (size >= 16) {
+                    val prop = le32(d, off + 8)
+                    val value = le32(d, off + 12)
+                    if (props[prop] != value) {
+                        props[prop] = value
+                        propsVersion++
+                    }
+                }
+                CanonEvent.AVAIL_LIST_CHANGED -> if (size >= 20) {
+                    val prop = le32(d, off + 8)
+                    val count = le32(d, off + 16)
+                    if (count in 0..512 && 20 + count * 4 <= size) {
+                        val values = IntArray(count) { le32(d, off + 20 + it * 4) }
+                        allowed[prop] = values
+                        propsVersion++
+                    }
+                }
+            }
             off += size
         }
         return added
+    }
+
+    /** Imposta una proprietà di esposizione (Tv, Av, ISO). */
+    fun setProp(prop: Int, value: Int): Boolean {
+        val ok = setPropEx(prop, value).ok
+        if (ok) {
+            props[prop] = value
+            propsVersion++
+        }
+        return ok
     }
 
     /** Scatto singolo. Restituisce il codice di risposta (OK, occupata, ecc.). */
