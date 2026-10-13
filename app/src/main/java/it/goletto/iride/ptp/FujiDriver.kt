@@ -76,10 +76,11 @@ class FujiDriver(
 
     override fun exposure() = expo
 
-    fun connect(guid: ByteArray, friendlyName: String) {
-        val s = socketFactory.createSocket()
-        s.tcpNoDelay = true
-        s.connect(InetSocketAddress(host, CMD_PORT), 5000)
+    fun connect(guid: ByteArray, friendlyName: String, preconnected: Socket? = null) {
+        val s = preconnected ?: socketFactory.createSocket().also {
+            it.tcpNoDelay = true
+            it.connect(InetSocketAddress(host, CMD_PORT), 8000)
+        }
         s.soTimeout = 60_000
         cmd = s
         val inp = BufferedInputStream(s.getInputStream(), 256 * 1024)

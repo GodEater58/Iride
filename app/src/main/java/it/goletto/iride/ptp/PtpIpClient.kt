@@ -48,10 +48,15 @@ class PtpIpClient(
     /** Coda degli eventi standard: i driver la svuotano durante il polling. */
     val events = java.util.concurrent.ConcurrentLinkedQueue<PtpEvent>()
 
-    fun connect(host: String, guid: ByteArray, friendlyName: String) {
-        val s = socketFactory.createSocket()
-        s.tcpNoDelay = true
-        s.connect(InetSocketAddress(host, PtpIp.PORT), 5000)
+    /**
+     * Si collega alla fotocamera. Se [preconnected] è valorizzato usa quella connessione
+     * (già aperta dalla ricerca) invece di aprirne una seconda: le Canon ne accettano una sola.
+     */
+    fun connect(host: String, guid: ByteArray, friendlyName: String, preconnected: Socket? = null) {
+        val s = preconnected ?: socketFactory.createSocket().also {
+            it.tcpNoDelay = true
+            it.connect(InetSocketAddress(host, PtpIp.PORT), 8000)
+        }
         // La fotocamera può chiedere conferma sul display: attesa lunga
         s.soTimeout = 90_000
         cmdSocket = s

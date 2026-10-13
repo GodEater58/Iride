@@ -20,6 +20,7 @@ import java.io.IOException
 import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import java.net.Socket
 import javax.net.SocketFactory
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -109,7 +110,7 @@ class CameraNetwork(context: Context) {
      * Cerca nelle sottoreti /24 locali i dispositivi con una delle porte indicate aperta.
      * Restituisce coppie (indirizzo, porta), nell'ordine delle porte richieste.
      */
-    suspend fun scan(ports: List<Int>, onProgress: (String) -> Unit): List<Pair<String, Int>> = coroutineScope {
+    suspend fun scan(ports: List<Int>, keepOpen: Set<Int>, onProgress: (String) -> Unit): List<Found> = coroutineScope {
         val factory = socketFactory()
         val sem = Semaphore(64)
         val hosts = localAddresses().flatMap { a ->
@@ -119,11 +120,46 @@ class CameraNetwork(context: Context) {
             (1..254).filter { it != self }.map { prefix + it }
         }.distinct()
         onProgress("Ricerca su ${hosts.size} indirizzi…")
+        // appena si trova una fotocamera PTP/IP la ricerca si ferma: la connessione aperta
+        // non deve restare inattiva a lungo, o la fotocamera la chiude
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
         val found = hosts.flatMap { h -> ports.map { port -> h to port } }.map { (h, port) ->
-            async(Dispatchers.IO) { sem.withPermit { if (probe(factory, h, port)) h to port else null } }
+            async(Dispatchers.IO) {
+                sem.withPermit {
+                    if (stop.get()) {
+                        null
+                    } else if (port in keepOpen) {
+                        // le fotocamere PTP/IP accettano una sola connessione: quella trovata va riusata
+                        open(factory, h, port, 300)?.let {
+                            stop.set(true)
+                            Found(h, port, it)
+                        }
+                    } else if (probe(factory, h, port, 300)) {
+                        Found(h, port, null)
+                    } else {
+                        null
+                    }
+                }
+            }
         }.awaitAll().filterNotNull()
-        found.sortedBy { ports.indexOf(it.second) }
+        found.sortedBy { ports.indexOf(it.port) }
     }
+
+    /** Apre una connessione TCP e la lascia aperta; null se non risponde. */
+    fun open(factory: SocketFactory, host: String, port: Int, timeoutMs: Int): Socket? {
+        val s = factory.createSocket()
+        return try {
+            s.tcpNoDelay = true
+            s.connect(InetSocketAddress(host, port), timeoutMs)
+            s
+        } catch (e: Exception) {
+            runCatching { s.close() }
+            null
+        }
+    }
+
+    /** Una fotocamera trovata; [socket] è la connessione già aperta da riusare (porte PTP/IP). */
+    class Found(val host: String, val port: Int, val socket: Socket?)
 
     fun probe(factory: SocketFactory, host: String, port: Int = PtpIp.PORT, timeoutMs: Int = 400): Boolean = try {
         factory.createSocket().use { it.connect(InetSocketAddress(host, port), timeoutMs) }

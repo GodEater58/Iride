@@ -66,55 +66,77 @@ object DriverFactory {
     ): CameraDriver {
         val ctx = network.context()
         val ports = portsFor(requested)
-        val candidates: List<Pair<String, Int>> = if (hostInput.isNotBlank()) {
+        // porte dove la fotocamera accetta una sola connessione: non si "bussa", ci si collega
+        val single = setOf(PtpIp.PORT, FujiDriver.CMD_PORT)
+        val candidates: List<CameraNetwork.Found> = if (hostInput.isNotBlank()) {
             val h = hostInput.trim()
-            ports.filter { network.probe(ctx.socketFactory, h, it, 1500) }.map { h to it }
-                .ifEmpty { throw IOException("Nessuna risposta da $h sulle porte ${ports.joinToString()}") }
+            status("Contatto $h…")
+            ports.mapNotNull { port ->
+                if (port in single) {
+                    network.open(ctx.socketFactory, h, port, 3000)?.let { CameraNetwork.Found(h, port, it) }
+                } else if (network.probe(ctx.socketFactory, h, port, 1500)) {
+                    CameraNetwork.Found(h, port, null)
+                } else {
+                    null
+                }
+            }.ifEmpty {
+                throw IOException("Nessuna risposta da $h. Controlla l'indirizzo e che la fotocamera sia nella stessa rete. Se avevi già provato a collegarti, spegni e riaccendi il Wi-Fi della fotocamera.")
+            }
         } else {
             status("Cerco la fotocamera sulla rete…")
-            network.scan(ports) { log(it) }
+            network.scan(ports, single) { log(it) }
         }
         if (candidates.isEmpty()) {
             throw IOException("Nessuna fotocamera trovata. Controlla che il Wi-Fi della fotocamera sia attivo e collegato, oppure inserisci l'indirizzo IP.")
         }
-        log("Trovati: " + candidates.joinToString { "${it.first}:${it.second}" })
+        log("Trovati: " + candidates.joinToString { "${it.host}:${it.port}" })
 
-        var lastError: Exception? = null
-        for ((host, port) in candidates) {
-            try {
-                val driver = when (port) {
-                    PtpIp.PORT -> {
-                        status("Collegamento a $host… conferma sulla fotocamera se richiesto")
-                        connectPtp(requested, host, ctx.socketFactory, guid, friendlyName, log)
-                    }
-                    FujiDriver.CMD_PORT -> {
-                        status("Collegamento alla Fujifilm $host… conferma sulla fotocamera se richiesto")
-                        FujiDriver(ctx.socketFactory, host, log).also {
-                            try {
-                                it.connect(guid, friendlyName)
-                            } catch (e: Exception) {
-                                runCatching { it.close() }
-                                throw e
+        val used = HashSet<CameraNetwork.Found>()
+        try {
+            var lastError: Exception? = null
+            for (c in candidates) {
+                val host = c.host
+                val port = c.port
+                used.add(c)
+                try {
+                    val driver = when (port) {
+                        PtpIp.PORT -> {
+                            status("Collegamento a $host… conferma sulla fotocamera se richiesto")
+                            connectPtp(requested, host, ctx.socketFactory, guid, friendlyName, log, c.socket)
+                        }
+                        FujiDriver.CMD_PORT -> {
+                            status("Collegamento alla Fujifilm $host… conferma sulla fotocamera se richiesto")
+                            FujiDriver(ctx.socketFactory, host, log).also {
+                                try {
+                                    it.connect(guid, friendlyName, c.socket)
+                                } catch (e: Exception) {
+                                    runCatching { it.close() }
+                                    throw e
+                                }
                             }
                         }
+                        8080, 10000 -> {
+                            val base = SonyHttpDriver.probe(ctx, host) ?: continue
+                            status("Collegamento alla Sony $host…")
+                            SonyHttpDriver(ctx, base, log).also { it.initialize() }
+                        }
+                        HTTP -> connectHttp(requested, host, ctx, guid, friendlyName, log, status) ?: continue
+                        else -> continue
                     }
-                    8080, 10000 -> {
-                        val base = SonyHttpDriver.probe(ctx, host) ?: continue
-                        status("Collegamento alla Sony $host…")
-                        SonyHttpDriver(ctx, base, log).also { it.initialize() }
-                    }
-                    HTTP -> connectHttp(requested, host, ctx, guid, friendlyName, log, status) ?: continue
-                    else -> continue
+                    log("Driver: ${driver.brand.label}")
+                    lastHost = host
+                    return driver
+                } catch (e: Exception) {
+                    runCatching { c.socket?.close() }
+                    log("$host:$port: ${e.message}")
+                    lastError = e
                 }
-                log("Driver: ${driver.brand.label}")
-                lastHost = host
-                return driver
-            } catch (e: Exception) {
-                log("$host:$port: ${e.message}")
-                lastError = e
             }
+            throw lastError ?: IOException("Nessuna fotocamera compatibile trovata")
+        } finally {
+            // chiude le connessioni aperte dalla ricerca e non usate (es. un secondo dispositivo)
+            candidates.filter { it !in used }.forEach { runCatching { it.socket?.close() } }
         }
-        throw lastError ?: IOException("Nessuna fotocamera compatibile trovata")
     }
 
     private fun connectHttp(
@@ -145,10 +167,11 @@ object DriverFactory {
         guid: ByteArray,
         friendlyName: String,
         log: (String) -> Unit,
+        socket: java.net.Socket? = null,
     ): CameraDriver {
         val client = PtpIpClient(socketFactory, log)
         try {
-            client.connect(host, guid, friendlyName)
+            client.connect(host, guid, friendlyName, socket)
             val di = PtpCamera.readDeviceInfo(client)
             val detected = detect(di)
             val brand = if (requested == Brand.AUTO) detected else requested

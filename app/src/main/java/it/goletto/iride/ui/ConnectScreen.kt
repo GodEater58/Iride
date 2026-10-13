@@ -173,6 +173,7 @@ fun ConnectScreen(vm: MainViewModel) {
                 }
                 SetupStep(3, "Premi Collega. Se l'indirizzo IP è vuoto, Iride cerca la fotocamera da solo.")
                 SetupStep(4, "Se la fotocamera chiede di confermare «Iride», premi OK.")
+                SetupStep(5, "Se un tentativo fallisce, spegni e riaccendi il Wi-Fi della fotocamera prima di riprovare: molte fotocamere accettano un solo collegamento alla volta.")
                 if (vm.brand == Brand.AUTO) {
                     Text(
                         "Con Automatico Iride cerca da sola Canon, Nikon, Sony, Fujifilm, Olympus/OM e Panasonic. Se conosci la marca, sceglierla rende il collegamento più rapido.",
