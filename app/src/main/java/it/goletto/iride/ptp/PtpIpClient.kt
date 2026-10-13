@@ -36,7 +36,7 @@ class PtpIpClient(
     private var cmdIn: InputStream? = null
     private var cmdOut: OutputStream? = null
     private var transactionId = 0
-    private val lock = Any()
+    private val lock = java.util.concurrent.locks.ReentrantLock()
 
     @Volatile
     var isOpen = false
@@ -133,8 +133,13 @@ class PtpIpClient(
         dataOut: ByteArray? = null,
         sink: OutputStream? = null,
         onProgress: ((Long, Long) -> Unit)? = null,
-    ): PtpResponse = synchronized(lock) {
-        doTransaction(op, params, dataOut, sink, onProgress)
+    ): PtpResponse {
+        lock.lock()
+        try {
+            return doTransaction(op, params, dataOut, sink, onProgress)
+        } finally {
+            lock.unlock()
+        }
     }
 
     private fun doTransaction(
@@ -186,11 +191,15 @@ class PtpIpClient(
     }
 
     override fun close() {
-        if (isOpen) {
+        // chiude la sessione solo se il canale è libero: se un'operazione è bloccata
+        // (es. download interrotto) si chiudono direttamente le socket, senza attendere
+        if (isOpen && lock.tryLock(1, java.util.concurrent.TimeUnit.SECONDS)) {
             try {
                 cmdSocket?.soTimeout = 3000
-                transaction(PtpOp.CLOSE_SESSION)
+                doTransaction(PtpOp.CLOSE_SESSION, IntArray(0), null, null, null)
             } catch (ignored: Exception) {
+            } finally {
+                lock.unlock()
             }
         }
         isOpen = false

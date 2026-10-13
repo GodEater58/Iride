@@ -408,20 +408,25 @@ private fun PreviewSheet(vm: MainViewModel, f: CamFile, onDismiss: () -> Unit) {
                     modifier = Modifier.weight(1f).height(56.dp),
                     icon = IrideIcons.Check,
                 )
+                val alreadySaved = f.id in vm.saved
                 PrimaryButton(
-                    "Scarica originale",
+                    when {
+                        alreadySaved -> "Già sul telefono"
+                        f.transient -> "Scarica anteprima"
+                        else -> "Scarica originale"
+                    },
                     onClick = {
                         vm.downloadOne(f.id)
                         onDismiss()
                     },
                     modifier = Modifier.weight(1.4f),
-                    icon = IrideIcons.Download,
-                    enabled = !vm.downloading,
+                    icon = if (alreadySaved) IrideIcons.Check else IrideIcons.Download,
+                    enabled = !vm.downloading && !alreadySaved,
                 )
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "L'anteprima è la miniatura salvata nel file. Il download porta l'originale completo.",
+                if (f.transient) "Questo file è arrivato dalla fotocamera al momento dello scatto ed è salvato in Download/Iride." else "L'anteprima è la miniatura salvata nel file. Il download porta l'originale completo.",
                 style = MaterialTheme.typography.labelSmall,
                 color = p.muted,
             )

@@ -203,7 +203,7 @@ class SonyHttpDriver(
         val now = Date()
         for (i in 0 until urls.length()) {
             val url = urls.optString(i).takeIf { it.startsWith("http") } ?: continue
-            pending.add(CamFile(url, "SONY_${nameFmt.format(now)}${if (i > 0) "_$i" else ""}.JPG", 0, dateFmt.format(now), transient = true))
+            pending.add(CamFile("$url#${now.time}", "SONY_${nameFmt.format(now)}${if (i > 0) "_$i" else ""}.JPG", 0, dateFmt.format(now), transient = true))
         }
     }
 
@@ -296,7 +296,7 @@ class SonyHttpDriver(
     override fun thumbnail(file: CamFile): ByteArray? = null
 
     override fun download(file: CamFile, out: OutputStream, progress: (Long, Long) -> Unit) {
-        val c = net.open(file.id, 30000)
+        val c = net.open(file.id.substringBefore('#'), 30000)
         try {
             if (c.responseCode !in 200..299) throw IOException("HTTP ${c.responseCode}")
             val total = c.contentLengthLong

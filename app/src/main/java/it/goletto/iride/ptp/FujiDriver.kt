@@ -304,6 +304,8 @@ class FujiDriver(
                 val now = Date()
                 val id = "fuji-${now.time}"
                 previews[id] = img
+                // tiene in memoria solo le ultime anteprime (sono già salvate sul telefono)
+                if (previews.size > 30) previews.keys.minByOrNull { it.removePrefix("fuji-").toLongOrNull() ?: 0L }?.let { previews.remove(it) }
                 newFiles.offer(CamFile(id, "FUJI_${nameFmt.format(now)}.JPG", img.size.toLong(), dateFmt.format(now), transient = true))
             }
             Shot.OK

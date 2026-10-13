@@ -448,7 +448,8 @@ private fun ShutterButton(vm: MainViewModel) {
         if (vm.shotTick == 0) return@LaunchedEffect
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         iris.animateTo(0.04f, tween(90, easing = FastOutSlowInEasing))
-        if (!(vm.intervalRunning && vm.intBulb.trim().let { it.isNotEmpty() && it != "0" })) {
+        val bulbSequence = vm.intervalRunning && vm.caps.bulb && vm.intBulb.trim().let { it.isNotEmpty() && it != "0" }
+        if (!bulbSequence) {
             iris.animateTo(0.78f, tween(320, easing = FastOutSlowInEasing))
         }
     }
@@ -647,8 +648,12 @@ private fun Dial(values: List<Long>, startIndex: Int, format: (Long) -> String, 
     val itemPx = with(density) { itemW.toPx() }
     val centerIndex = if (state.firstVisibleItemScrollOffset > itemPx / 2) state.firstVisibleItemIndex + 1 else state.firstVisibleItemIndex
 
+    // applica il valore solo dopo che l'utente ha girato la ghiera, non all'apertura
+    var touched by remember { mutableStateOf(false) }
     LaunchedEffect(state.isScrollInProgress) {
-        if (!state.isScrollInProgress) {
+        if (state.isScrollInProgress) {
+            touched = true
+        } else if (touched) {
             val idx = centerIndex.coerceIn(0, values.lastIndex)
             onSelect(values[idx])
         }

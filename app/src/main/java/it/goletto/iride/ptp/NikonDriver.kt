@@ -119,8 +119,13 @@ class NikonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
         return shotFrom(code)
     }
 
+    /** Tempo impostato prima della posa B, da ripristinare alla fine. */
+    private var timeBeforeBulb: Long? = null
+
     override fun bulbStart(): Shot {
         // Come libgphoto2: tempo su posa B e scatto senza autofocus. Serve il modo M.
+        val current = getPropDesc(PtpProp.EXPOSURE_TIME)?.current
+        if (current != null && current != 0xFFFFFFFFL) timeBeforeBulb = current
         setPropValue(PtpProp.EXPOSURE_TIME, PtpType.UINT32, 0xFFFFFFFFL)
         val code = ptp.transaction(NikonOp.CAPTURE_REC_IN_MEDIA, intArrayOf(-1, 0)).code
         if (code != PtpResp.OK) log("Posa B: risposta ${hex(code)} (la ghiera è su M?)")
@@ -130,6 +135,9 @@ class NikonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
     override fun bulbEnd() {
         check(ptp.transaction(NikonOp.TERMINATE_CAPTURE, intArrayOf(0, 0)), "Fine posa B")
         waitReady(5000)
+        // rimette il tempo di prima, altrimenti lo scatto normale successivo resterebbe in posa B
+        timeBeforeBulb?.let { setPropValue(PtpProp.EXPOSURE_TIME, PtpType.UINT32, it) }
+        timeBeforeBulb = null
     }
 
     override fun startLiveView() {

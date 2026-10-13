@@ -70,7 +70,8 @@ class CameraNetwork(context: Context) {
                 }
             }
             callback = cb
-            cm.requestNetwork(request, cb)
+            // dopo 60 s senza risposta Android chiama onUnavailable: niente attese infinite
+            cm.requestNetwork(request, cb, 60_000)
             cont.invokeOnCancellation { release() }
         }
 

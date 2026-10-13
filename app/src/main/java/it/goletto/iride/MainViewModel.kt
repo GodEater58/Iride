@@ -70,6 +70,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var pollJob: Job? = null
     private var liveJob: Job? = null
     private var intervalJob: Job? = null
+    private var downloadJob: Job? = null
+    private var filesJob: Job? = null
     private val thumbLoading = HashSet<String>()
     private var lastPropsVersion = -1
 
@@ -230,10 +232,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     net.release()
                 }
 
-                val cam = withContext(Dispatchers.IO) {
+                // il collegamento non si può interrompere a metà: se nel frattempo è stato annullato,
+                // la sessione appena aperta va chiusa invece di restare appesa sulla fotocamera
+                val cam = withContext(Dispatchers.IO + NonCancellable) {
                     DriverFactory.connect(brand, host, net, guid(), "Iride ${Build.MODEL}", ::log) { msg ->
-                        main.post { setStatus(msg) }
+                        main.post { if (busy) setStatus(msg) }
                     }
+                }
+                if (!isActive) {
+                    thread(isDaemon = true) { runCatching { cam.close() } }
+                    throw CancellationException("annullato")
                 }
                 val target = DriverFactory.lastHost
                 camera = cam
@@ -264,6 +272,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun cancelConnect() {
         connectJob?.cancel()
         cleanup()
+        busy = false
+        setStatus("Collegamento annullato")
     }
 
     fun disconnect() {
@@ -276,6 +286,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         pollJob?.cancel()
         liveJob?.cancel()
         intervalJob?.cancel()
+        downloadJob?.cancel()
+        filesJob?.cancel()
         val c = camera
         camera = null
         if (c != null) thread(isDaemon = true) { runCatching { c.close() } }
@@ -290,6 +302,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         thumbs.clear()
         thumbLoading.clear()
         selected = emptySet()
+        saved = emptySet()
         exposure = ExposureState()
         lastPropsVersion = -1
         caps = Capabilities()
@@ -452,7 +465,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Durata stimata della sequenza in secondi (0 se il tempo dipende dalla fotocamera). */
     fun estimatedSeconds(): Int {
         val count = intCount.trim().toIntOrNull() ?: return 0
-        val bulb = parseSeconds(intBulb)
+        val bulb = if (caps.bulb) parseSeconds(intBulb) else 0.0
         val pause = parseSeconds(intPause)
         return ((bulb + pause) * count - pause).coerceAtLeast(0.0).roundToInt()
     }
@@ -466,7 +479,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         prefs.edit().putString("intCount", intCount).putString("intPause", intPause).putString("intBulb", intBulb).apply()
         val pauseMs = (parseSeconds(intPause) * 1000).toLong()
-        val bulbMs = (parseSeconds(intBulb) * 1000).toLong()
+        // con fotocamere senza posa B da remoto il valore salvato non va usato
+        val bulbMs = if (caps.bulb) (parseSeconds(intBulb) * 1000).toLong() else 0L
         intervalRunning = true
         seqDone = 0
         seqTotal = count
@@ -533,7 +547,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         while (true) {
             val shot = withContext(Dispatchers.IO) { action() }
             if (shot == Shot.OK) return
-            if (SystemClock.elapsedRealtime() - start > 120_000) {
+            val elapsed = SystemClock.elapsedRealtime() - start
+            // "occupata" può durare a lungo (scrittura su scheda, riduzione rumore); un errore vero no
+            if (shot == Shot.FAILED && elapsed > 20_000) {
+                throw IOException("la fotocamera rifiuta lo scatto (controlla messa a fuoco, modo di scatto e scheda)")
+            }
+            if (elapsed > 120_000) {
                 throw IOException("la fotocamera non accetta lo scatto da oltre 2 minuti")
             }
             seqPhase = SeqPhase.BUSY
@@ -551,15 +570,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshFiles() {
         val cam = camera ?: return
         galleryStatus = "Lettura della scheda…"
-        viewModelScope.launch {
+        filesJob?.cancel()
+        filesJob = viewModelScope.launch {
             try {
                 val list = withContext(Dispatchers.IO) {
                     cam.listFiles { n, tot ->
                         if (n % 10 == 0 || n == tot) main.post { galleryStatus = "Lettura della scheda… $n di $tot" }
                     }
                 }
+                // i file ricevuti al volo (Sony, Fujifilm…) non sono sulla scheda: vanno conservati
+                val keep = files.filter { it.transient }
                 files.clear()
-                files.addAll(list)
+                files.addAll(keep + list)
                 galleryStatus = ""
             } catch (e: Exception) {
                 galleryStatus = "Errore nella lettura dei file: ${e.message}"
@@ -583,6 +605,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /** File ricevuti al volo e già salvati sul telefono: non si possono riscaricare. */
+    var saved by mutableStateOf(setOf<String>())
+        private set
 
     val selecting: Boolean get() = selected.isNotEmpty()
 
@@ -611,6 +637,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 saveFile(resolver, cam, f, sub) { _, _ -> }
+                main.post { saved = saved + f.id }
                 log("Salvato sul telefono: ${f.name}")
             } catch (e: Exception) {
                 log("Download di ${f.name} fallito: ${e.message}")
@@ -621,15 +648,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun downloadSelected() {
         val cam = camera ?: return
         if (downloading) return
-        val list = files.filter { it.id in selected }
-        if (list.isEmpty()) return
+        val list = files.filter { it.id in selected && it.id !in saved }
+        if (list.isEmpty()) {
+            selected = emptySet()
+            return
+        }
         val resolver = getApplication<Application>().contentResolver
         val sub = subfolder
         downloading = true
         dlTotal = list.size
         dlIndex = 0
         dlFraction = 0f
-        viewModelScope.launch {
+        downloadJob = viewModelScope.launch {
             var ok = 0
             for ((i, f) in list.withIndex()) {
                 dlIndex = i + 1
