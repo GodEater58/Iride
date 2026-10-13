@@ -322,24 +322,55 @@ private fun FinderOverlay(grid: Boolean, color: Color, modifier: Modifier) {
 private fun ExposurePanel(vm: MainViewModel, onEdit: (ExpoKey) -> Unit) {
     val p = LocalIride.current
     val e = vm.exposure
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(p.raised)
             .border(1.dp, p.groove, RoundedCornerShape(18.dp))
-            .padding(vertical = 10.dp, horizontal = 6.dp),
+            .padding(vertical = 8.dp, horizontal = 6.dp),
+    ) {
+        // valori principali, come sul display superiore
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            listOf(ExpoKey.TV, ExpoKey.AV, ExpoKey.ISO, ExpoKey.EV).forEach { k ->
+                ExpoCell(e.text(k), k.short, e.canEdit(k), Modifier.weight(1f)) { onEdit(k) }
+            }
+        }
+        Hairline(Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SecondaryCell(e.text(ExpoKey.MODE), ExpoKey.MODE.short, e.canEdit(ExpoKey.MODE), Modifier.weight(0.8f)) { onEdit(ExpoKey.MODE) }
+            SecondaryCell(e.text(ExpoKey.WB), ExpoKey.WB.short, e.canEdit(ExpoKey.WB), Modifier.weight(1.4f)) { onEdit(ExpoKey.WB) }
+            SecondaryCell(e.text(ExpoKey.SHOTS), ExpoKey.SHOTS.short, false, Modifier.weight(1f)) {}
+        }
+    }
+    if (vm.exposure.values.isNotEmpty()) {
+        Text(
+            if (listOf(ExpoKey.TV, ExpoKey.AV, ExpoKey.ISO, ExpoKey.EV, ExpoKey.WB, ExpoKey.MODE).any { e.canEdit(it) })
+                "Tocca un valore con il punto per cambiarlo. I valori grigi dipendono dalla ghiera o dal modo di scatto."
+            else
+                "La fotocamera non permette di cambiare questi valori da remoto nel modo di scatto attuale.",
+            style = MaterialTheme.typography.labelSmall,
+            color = p.muted,
+            modifier = Modifier.padding(top = 6.dp, start = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun SecondaryCell(value: String, label: String, editable: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val p = LocalIride.current
+    Row(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(enabled = editable, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ExpoCell(e.text(ExpoKey.MODE), ExpoKey.MODE.short, false, Modifier.weight(0.8f)) {}
-        PanelDivider()
-        ExpoCell(e.text(ExpoKey.TV), ExpoKey.TV.short, e.canEdit(ExpoKey.TV), Modifier.weight(1.2f)) { onEdit(ExpoKey.TV) }
-        ExpoCell(e.text(ExpoKey.AV), ExpoKey.AV.short, e.canEdit(ExpoKey.AV), Modifier.weight(1.1f)) { onEdit(ExpoKey.AV) }
-        ExpoCell(e.text(ExpoKey.ISO), ExpoKey.ISO.short, e.canEdit(ExpoKey.ISO), Modifier.weight(1.1f)) { onEdit(ExpoKey.ISO) }
-        if (e.values.containsKey(ExpoKey.SHOTS)) {
-            PanelDivider()
-            ExpoCell(e.text(ExpoKey.SHOTS), ExpoKey.SHOTS.short, false, Modifier.weight(1f), dim = true) {}
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = p.muted, maxLines = 1)
+            Text(value, style = readout(18), color = if (editable) p.lcd else p.text, maxLines = 1)
         }
+        if (editable) Icon(IrideIcons.Chevron, null, tint = p.lcd, modifier = Modifier.size(14.dp))
     }
 }
 
@@ -585,17 +616,21 @@ private fun DialSheet(vm: MainViewModel, prop: ExpoKey, onDismiss: () -> Unit) {
         ) {
             Text(prop.title, style = MaterialTheme.typography.titleMedium, color = p.muted)
             Spacer(Modifier.height(4.dp))
-            Text(vm.exposure.text(prop), style = readout(56), color = p.lcd)
+            Text(vm.exposure.text(prop), style = readout(if (prop.isList) 36 else 56), color = p.lcd)
             Spacer(Modifier.height(16.dp))
             if (values.isEmpty()) {
                 Text("La fotocamera non ha inviato i valori disponibili.", color = p.muted)
+            } else if (prop.isList) {
+                ChoiceList(options.map { it.code to it.label }, current) { v ->
+                    if (v != vm.exposure.values[prop]?.code) vm.setExposure(prop, v)
+                }
             } else {
                 Dial(values, startIndex, format = { labels[it] ?: it.toString() }) { v ->
                     if (v != vm.exposure.values[prop]?.code) vm.setExposure(prop, v)
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Text("Scorri la ghiera o tocca un valore", style = MaterialTheme.typography.labelSmall, color = p.muted)
+            Text(if (prop.isList) "Tocca la voce da impostare" else "Scorri la ghiera o tocca un valore", style = MaterialTheme.typography.labelSmall, color = p.muted)
         }
     }
 }
@@ -656,5 +691,38 @@ private fun Dial(values: List<Long>, startIndex: Int, format: (Long) -> String, 
                 .height(84.dp)
                 .border(1.dp, p.lcd.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
         )
+    }
+}
+
+
+/** Elenco a riquadri per i valori testuali (bilanciamento del bianco, modo di scatto). */
+@Composable
+private fun ChoiceList(items: List<Pair<Long, String>>, current: Long?, onSelect: (Long) -> Unit) {
+    val p = LocalIride.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (code, label) ->
+                    val sel = code == current
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (sel) p.lcd else p.body)
+                            .border(1.dp, if (sel) p.lcd else p.groove, RoundedCornerShape(14.dp))
+                            .clickable(role = Role.RadioButton) { onSelect(code) }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelLarge, color = if (sel) p.onLcd else p.text, maxLines = 1)
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
     }
 }

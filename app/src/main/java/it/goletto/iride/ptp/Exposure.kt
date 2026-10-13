@@ -1,5 +1,6 @@
 package it.goletto.iride.ptp
 
+import it.goletto.iride.camera.formatEv
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ln
@@ -12,6 +13,8 @@ object Expo {
     const val TV = 0xD102
     const val ISO = 0xD103
     const val MODE = 0xD105
+    const val EV = 0xD104
+    const val WB = 0xD109
     const val SHOTS = 0xD11B
 
     private val isoNominal = intArrayOf(
@@ -66,6 +69,39 @@ object Expo {
             val d = tvDenominators.minByOrNull { abs(ln(1.0 / it) - ln(t)) }
             "1/$d"
         }
+    }
+
+    /** Compensazione Canon: byte con segno in ottavi di stop (terzi approssimati: 3 = 1/3, 5 = 2/3). */
+    fun ev(code: Int): String {
+        val v = code.toByte().toInt()
+        val sign = if (v < 0) -1 else 1
+        val a = kotlin.math.abs(v)
+        val frac = when (a % 8) {
+            0 -> 0.0
+            3 -> 1.0 / 3
+            4 -> 0.5
+            5 -> 2.0 / 3
+            else -> (a % 8) / 8.0
+        }
+        return formatEv(sign * (a / 8 + frac))
+    }
+
+    /** Bilanciamento del bianco EOS (tabella di libgphoto2). */
+    fun wb(code: Int): String = when (code) {
+        0 -> "Auto"
+        1 -> "Luce diurna"
+        2 -> "Nuvoloso"
+        3 -> "Tungsteno"
+        4 -> "Fluorescente"
+        5 -> "Flash"
+        6 -> "Manuale"
+        8 -> "Ombra"
+        9 -> "Temp. colore"
+        in 10..12 -> "Personale PC-${code - 9}"
+        15, 16, 18, 19 -> "Manuale"
+        20, 21 -> "Personale PC-${code - 16}"
+        23 -> "Auto bianco"
+        else -> "WB $code"
     }
 
     fun mode(code: Int?): String = when (code) {

@@ -1,8 +1,23 @@
 # Iride
 
-App Android per il controllo remoto delle Canon EOS via Wi-Fi (PTP/IP), pensata come alternativa più completa a Camera Connect. Obiettivo principale: Canon 6D, da provare anche sulla 1300D.
+App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più completa alle app dei produttori (Camera Connect, SnapBridge, Imaging Edge…).
 
-## Cosa fa (versione 0.2)
+## Marche supportate
+
+| Marca | Protocollo | Scatto | Parametri | Live view | Posa B | Galleria |
+|---|---|---|---|---|---|---|
+| Canon EOS | PTP/IP | ✅ | ✅ | ✅ | ✅ | ✅ RAW originali |
+| Nikon | PTP/IP | ✅ | ✅ | ✅ | ✅ (modo M) | ✅ |
+| Sony a7 III / a7 IV e successive | PTP/IP (PC remoto) | ✅ | ✅ | ✅ | ✅ | foto scaricate subito |
+| Sony meno recenti | API remota HTTP | ✅ | ✅ | ✅ | ✅ se supportata | anteprima |
+| Fujifilm | PTP/IP Fuji | ✅ | ✅ (no tempo) | ✅ | – | anteprima |
+| Olympus / OM System | HTTP (OI.Share) | ✅ | ✅ | ✅ | – | ✅ |
+| Panasonic Lumix | HTTP (cam.cgi) | ✅ | – | ✅ | – | – |
+| Altre PTP/IP | PTP standard | ✅ | se esposti | – | – | ✅ |
+
+Solo Canon è stata sviluppata pensando a una fotocamera reale (6D); gli altri driver seguono libgphoto2 e altri progetti open source e vanno collaudati.
+
+## Cosa fa
 
 | Funzione | Note |
 |---|---|
@@ -10,7 +25,7 @@ App Android per il controllo remoto delle Canon EOS via Wi-Fi (PTP/IP), pensata 
 | Ricerca automatica della fotocamera | Scansione della porta 15740 sulla rete locale, oppure IP manuale |
 | Scatto remoto | Con o senza autofocus, pulsante a diaframma animato |
 | Live view | Griglia dei terzi, pizzica per zoom, doppio tocco 4× per la messa a fuoco |
-| Pannello esposizione | Modo, tempo, diaframma, ISO e scatti rimasti; ghiera per cambiare Tv/Av/ISO |
+| Parametri di scatto | Tempo, diaframma, ISO, compensazione, bilanciamento del bianco e modo, modificabili dal telefono |
 | Intervallometro | Preset, numero scatti, pausa, posa Bulb oltre i 30 s, durata stimata |
 | Galleria | Raggruppata per giorno, filtro RAW/JPG, anteprima, selezione multipla |
 | Download dei **RAW originali (CR2)** | Camera Connect li converte in JPEG |

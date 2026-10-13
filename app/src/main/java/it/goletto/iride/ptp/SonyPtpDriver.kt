@@ -1,5 +1,7 @@
 package it.goletto.iride.ptp
 
+import it.goletto.iride.camera.standardWbLabel
+import it.goletto.iride.camera.formatEv
 import it.goletto.iride.camera.Brand
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.Capabilities
@@ -108,6 +110,8 @@ class SonyPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, lo
         ExpoKey.TV to SONY_SHUTTER,
         ExpoKey.AV to PtpProp.FNUMBER,
         ExpoKey.ISO to SONY_ISO,
+        ExpoKey.EV to SONY_EXPOSURE_COMP,
+        ExpoKey.WB to PtpProp.WHITE_BALANCE,
     )
 
     private fun format(key: ExpoKey, v: Long): String = when (key) {
@@ -115,6 +119,8 @@ class SonyPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, lo
         ExpoKey.TV -> shutterLabel(v)
         ExpoKey.AV -> formatAperture(v / 100.0)
         ExpoKey.ISO -> isoLabel(v)
+        ExpoKey.EV -> formatEv(v.toShort() / 1000.0)
+        ExpoKey.WB -> standardWbLabel(v, Brand.SONY)
         ExpoKey.SHOTS -> v.toString()
     }
 
@@ -124,7 +130,7 @@ class SonyPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, lo
         for ((key, prop) in keyProp) {
             val d = descs[prop] ?: continue
             values[key] = ExpoOption(d.current, format(key, d.current))
-            if (d.writable && d.values.isNotEmpty() && key != ExpoKey.MODE) {
+            if (d.writable && d.values.size > 1) {
                 options[key] = d.values.map { ExpoOption(it, format(key, it)) }
             }
         }
@@ -208,6 +214,7 @@ class SonyPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, lo
     companion object {
         const val SONY_SHUTTER = 0xD20D
         const val SONY_ISO = 0xD21E
+        const val SONY_EXPOSURE_COMP = 0xD224
         const val SONY_OBJECT_IN_MEMORY = 0xD215
         const val SONY_PRIORITY_MODE = 0xD25A
         const val SONY_SHUTTER_HALF = 0xD2C1

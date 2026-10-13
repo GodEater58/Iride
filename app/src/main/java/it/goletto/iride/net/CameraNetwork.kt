@@ -101,10 +101,16 @@ class CameraNetwork(context: Context) {
             .filter { it.isSiteLocalAddress }
     }
 
-    /** Cerca dispositivi con la porta PTP/IP (15740) aperta nelle sottoreti /24 locali. */
-    suspend fun scan(onProgress: (String) -> Unit): List<String> = coroutineScope {
+    /** Contesto di rete per i driver: HTTP e UDP instradati sulla rete giusta. */
+    fun context(): NetContext = NetContext(socketFactory(), network)
+
+    /**
+     * Cerca nelle sottoreti /24 locali i dispositivi con una delle porte indicate aperta.
+     * Restituisce coppie (indirizzo, porta), nell'ordine delle porte richieste.
+     */
+    suspend fun scan(ports: List<Int>, onProgress: (String) -> Unit): List<Pair<String, Int>> = coroutineScope {
         val factory = socketFactory()
-        val sem = Semaphore(48)
+        val sem = Semaphore(64)
         val hosts = localAddresses().flatMap { a ->
             val b = a.address
             val self = b[3].toInt() and 0xFF
@@ -112,13 +118,14 @@ class CameraNetwork(context: Context) {
             (1..254).filter { it != self }.map { prefix + it }
         }.distinct()
         onProgress("Ricerca su ${hosts.size} indirizzi…")
-        hosts.map { h ->
-            async(Dispatchers.IO) { sem.withPermit { if (probe(factory, h)) h else null } }
+        val found = hosts.flatMap { h -> ports.map { port -> h to port } }.map { (h, port) ->
+            async(Dispatchers.IO) { sem.withPermit { if (probe(factory, h, port)) h to port else null } }
         }.awaitAll().filterNotNull()
+        found.sortedBy { ports.indexOf(it.second) }
     }
 
-    private fun probe(factory: SocketFactory, host: String): Boolean = try {
-        factory.createSocket().use { it.connect(InetSocketAddress(host, PtpIp.PORT), 400) }
+    fun probe(factory: SocketFactory, host: String, port: Int = PtpIp.PORT, timeoutMs: Int = 400): Boolean = try {
+        factory.createSocket().use { it.connect(InetSocketAddress(host, port), timeoutMs) }
         true
     } catch (e: Exception) {
         false

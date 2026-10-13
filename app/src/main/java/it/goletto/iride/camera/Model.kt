@@ -23,7 +23,13 @@ enum class ExpoKey(val title: String, val short: String) {
     TV("Tempo di scatto", "Tempo"),
     AV("Apertura", "Diaframma"),
     ISO("Sensibilità ISO", "ISO"),
+    EV("Compensazione esposizione", "Comp. EV"),
+    WB("Bilanciamento del bianco", "Bil. bianco"),
     SHOTS("Scatti rimasti", "Scatti liberi"),
+    ;
+
+    /** Valori testuali (non numerici): si scelgono da un elenco invece che dalla ghiera. */
+    val isList: Boolean get() = this == MODE || this == WB
 }
 
 /** Un valore così come lo intende la fotocamera ([code]) e come lo leggiamo noi ([label]). */
@@ -146,3 +152,41 @@ fun formatSeconds(t: Double): String {
 
 fun formatAperture(f: Double): String =
     if (f <= 0) "--" else if (f >= 10) "f/${Math.round(f)}" else "f/" + String.format(Locale.ROOT, "%.1f", f)
+
+/** Compensazione in EV: 0, +0.3, +0.7, -1, +1.5… */
+fun formatEv(ev: Double): String {
+    if (kotlin.math.abs(ev) < 0.05) return "0"
+    val t = String.format(Locale.ROOT, "%+.1f", ev)
+    return if (t.endsWith(".0")) t.dropLast(2) else t
+}
+
+/** Bilanciamento del bianco con i codici PTP standard (0x5005) e le estensioni delle varie marche. */
+fun standardWbLabel(v: Long, brand: Brand): String = when (v) {
+    1L -> "Manuale"
+    2L -> "Auto"
+    3L -> "Auto un tocco"
+    4L -> "Luce diurna"
+    5L -> "Fluorescente"
+    6L -> "Tungsteno"
+    7L -> "Flash"
+    else -> when (brand) {
+        Brand.NIKON, Brand.SONY, Brand.OTHER_PTP -> when (v) {
+            0x8010L -> "Nuvoloso"
+            0x8011L -> "Ombra"
+            0x8012L -> "Temp. colore"
+            0x8013L -> "Preimpostato"
+            0x8016L -> "Auto luce naturale"
+            in 0x8001L..0x8006L -> "Fluorescente ${v - 0x8000L}"
+            in 0x8020L..0x8023L -> "Personalizzato ${v - 0x801FL}"
+            else -> "WB " + java.lang.Long.toHexString(v)
+        }
+        Brand.FUJIFILM -> when (v) {
+            in 0x8001L..0x8005L -> "Fluorescente ${v - 0x8000L}"
+            0x8006L -> "Ombra"
+            0x8007L -> "Temp. colore"
+            in 0x8008L..0x800CL -> "Personalizzato ${v - 0x8007L}"
+            else -> "WB " + java.lang.Long.toHexString(v)
+        }
+        else -> "WB $v"
+    }
+}

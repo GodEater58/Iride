@@ -23,6 +23,8 @@ class CanonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
         ExpoKey.TV to Expo.TV,
         ExpoKey.AV to Expo.AV,
         ExpoKey.ISO to Expo.ISO,
+        ExpoKey.EV to Expo.EV,
+        ExpoKey.WB to Expo.WB,
         ExpoKey.SHOTS to Expo.SHOTS,
     )
 
@@ -37,6 +39,8 @@ class CanonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
     private fun label(prop: Int, v: Int): String = when (prop) {
         Expo.MODE -> Expo.mode(v)
         Expo.SHOTS -> v.toString()
+        Expo.EV -> Expo.ev(v)
+        Expo.WB -> Expo.wb(v)
         else -> Expo.format(prop, v)
     }
 
@@ -47,7 +51,7 @@ class CanonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
             val v = props[prop] ?: continue
             values[key] = ExpoOption(v.toLong() and 0xFFFFFFFFL, label(prop, v))
             val list = allowed[prop]
-            if (list != null && key != ExpoKey.MODE && key != ExpoKey.SHOTS) {
+            if (list != null && list.size > 1 && key != ExpoKey.SHOTS) {
                 options[key] = list.map { ExpoOption(it.toLong() and 0xFFFFFFFFL, label(prop, it)) }
             }
         }

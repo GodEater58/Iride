@@ -85,7 +85,7 @@ fun ConnectScreen(vm: MainViewModel) {
         Text("Collega la tua fotocamera", style = MaterialTheme.typography.displaySmall, color = p.text)
         Spacer(Modifier.height(6.dp))
         Text(
-            "Canon, Nikon, Sony e altre marche via Wi-Fi: scatto remoto, live view, intervallometro e RAW originali. Internet resta attivo sui dati mobili.",
+            "Canon, Nikon, Sony, Fujifilm, Olympus e Panasonic via Wi-Fi: scatto remoto, ISO, tempi, diaframma e bilanciamento del bianco, live view, intervallometro e RAW originali. Internet resta attivo sui dati mobili.",
             style = MaterialTheme.typography.bodyMedium,
             color = p.muted,
         )
@@ -175,7 +175,7 @@ fun ConnectScreen(vm: MainViewModel) {
                 SetupStep(4, "Se la fotocamera chiede di confermare «Iride», premi OK.")
                 if (vm.brand == Brand.AUTO) {
                     Text(
-                        "Con Automatico Iride riconosce da sola Canon, Nikon e Sony. Per le altre marche usa i comandi standard.",
+                        "Con Automatico Iride cerca da sola Canon, Nikon, Sony, Fujifilm, Olympus/OM e Panasonic. Se conosci la marca, sceglierla rende il collegamento più rapido.",
                         style = MaterialTheme.typography.bodySmall,
                         color = p.muted,
                     )
@@ -294,7 +294,7 @@ private fun SetupStep(n: Int, text: String) {
 
 
 /** Marche con driver disponibile, nell'ordine mostrato. */
-val SupportedBrands = listOf(Brand.AUTO, Brand.CANON, Brand.NIKON, Brand.SONY, Brand.OTHER_PTP)
+val SupportedBrands = listOf(Brand.AUTO, Brand.CANON, Brand.NIKON, Brand.SONY, Brand.FUJIFILM, Brand.OLYMPUS, Brand.PANASONIC, Brand.OTHER_PTP)
 
 @Composable
 private fun BrandPicker(selected: Brand, onSelect: (Brand) -> Unit) {
@@ -324,12 +324,16 @@ private fun ssidHint(b: Brand): String = when (b) {
     Brand.CANON -> "EOS6D-…"
     Brand.NIKON -> "Nikon_WU2_… / D750_…"
     Brand.SONY -> "DIRECT-…"
+    Brand.FUJIFILM -> "FUJIFILM-X-…"
     else -> "Nome mostrato dalla fotocamera"
 }
 
 private fun firstStep(b: Brand): String = when (b) {
     Brand.CANON -> "Menu Wi-Fi → Attiva, poi scegli la funzione Smartphone."
     Brand.NIKON -> "Attiva il Wi-Fi della fotocamera nella modalità di collegamento a uno smartphone o a un computer."
-    Brand.SONY -> "Nel menu Rete attiva la funzione PC remoto con collegamento Wi-Fi. Se la fotocamera ha l'autenticazione di accesso, disattivala."
+    Brand.SONY -> "Sony a7 III e successive: nel menu Rete attiva la funzione PC remoto via Wi-Fi (se c'è l'autenticazione di accesso, disattivala). Sony meno recenti: avvia sulla fotocamera la funzione Controllo con smartphone."
+    Brand.FUJIFILM -> "Avvia sulla fotocamera la connessione Wi-Fi per il controllo remoto da smartphone."
+    Brand.OLYMPUS -> "Menu Wi-Fi: avvia la connessione allo smartphone in modalità privata. Usa la modalità «Wi-Fi fotocamera» qui sopra."
+    Brand.PANASONIC -> "Menu Wi-Fi: avvia il controllo remoto da smartphone. Usa la modalità «Wi-Fi fotocamera» qui sopra."
     else -> "Attiva il Wi-Fi della fotocamera nella modalità di collegamento a uno smartphone o a un computer."
 }

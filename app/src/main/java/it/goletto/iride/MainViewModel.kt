@@ -230,18 +230,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     net.release()
                 }
 
-                val target = host.trim().ifEmpty {
-                    setStatus("Cerco la fotocamera sulla rete…")
-                    val found = withContext(Dispatchers.IO) { net.scan { log(it) } }
-                    if (found.isEmpty()) throw IOException("Nessuna fotocamera trovata. Controlla che il Wi-Fi della fotocamera sia attivo o inserisci l'indirizzo IP.")
-                    log("Trovati: ${found.joinToString()}")
-                    found.first()
-                }
-
-                setStatus("Collegamento a $target… conferma sulla fotocamera se richiesto")
                 val cam = withContext(Dispatchers.IO) {
-                    DriverFactory.connectPtp(brand, target, net.socketFactory(), guid(), "Iride ${Build.MODEL}", ::log)
+                    DriverFactory.connect(brand, host, net, guid(), "Iride ${Build.MODEL}", ::log) { msg ->
+                        main.post { setStatus(msg) }
+                    }
                 }
+                val target = DriverFactory.lastHost
                 camera = cam
                 connectedBrand = cam.brand
                 caps = cam.caps

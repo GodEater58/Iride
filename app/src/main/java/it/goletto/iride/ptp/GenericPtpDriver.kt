@@ -1,5 +1,7 @@
 package it.goletto.iride.ptp
 
+import it.goletto.iride.camera.standardWbLabel
+import it.goletto.iride.camera.formatEv
 import it.goletto.iride.camera.Brand
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.Capabilities
@@ -25,6 +27,8 @@ class GenericPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp,
         ExpoKey.TV to PtpProp.EXPOSURE_TIME,
         ExpoKey.AV to PtpProp.FNUMBER,
         ExpoKey.ISO to PtpProp.EXPOSURE_INDEX,
+        ExpoKey.EV to PtpProp.EXPOSURE_BIAS,
+        ExpoKey.WB to PtpProp.WHITE_BALANCE,
     )
 
     private val formats: Map<ExpoKey, (Long) -> String> = mapOf(
@@ -32,6 +36,9 @@ class GenericPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp,
         ExpoKey.TV to { v -> formatSeconds(v / 10000.0) },
         ExpoKey.AV to { v -> formatAperture(v / 100.0) },
         ExpoKey.ISO to { v -> v.toString() },
+        // compensazione in millesimi di EV (INT16)
+        ExpoKey.EV to { v -> formatEv(v.toShort() / 1000.0) },
+        ExpoKey.WB to { v -> standardWbLabel(v, brand) },
     )
 
     override fun initialize() {

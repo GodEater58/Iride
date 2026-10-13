@@ -79,6 +79,8 @@ object PtpProp {
     const val EXPOSURE_TIME = 0x500D
     const val EXPOSURE_PROGRAM = 0x500E
     const val EXPOSURE_INDEX = 0x500F
+    const val EXPOSURE_BIAS = 0x5010
+    const val WHITE_BALANCE = 0x5005
 }
 
 object PtpResp {
