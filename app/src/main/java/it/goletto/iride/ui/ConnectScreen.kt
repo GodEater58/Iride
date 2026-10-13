@@ -1,4 +1,4 @@
-package it.goletto.eoslink.ui
+package it.goletto.iride.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -51,13 +51,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import it.goletto.eoslink.MainViewModel
-import it.goletto.eoslink.ui.theme.LocalEos
-import it.goletto.eoslink.ui.theme.readout
+import it.goletto.iride.MainViewModel
+import it.goletto.iride.camera.Brand
+import androidx.compose.foundation.horizontalScroll
+import it.goletto.iride.ui.theme.LocalIride
+import it.goletto.iride.ui.theme.readout
 
 @Composable
 fun ConnectScreen(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Column(
         Modifier
             .fillMaxSize()
@@ -69,9 +71,9 @@ fun ConnectScreen(vm: MainViewModel) {
             .padding(horizontal = 20.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("EosLink", style = MaterialTheme.typography.titleMedium, color = p.muted, modifier = Modifier.weight(1f))
+            Text("Iride", style = MaterialTheme.typography.titleMedium, color = p.muted, modifier = Modifier.weight(1f))
             IconTap(
-                if (p.night) EosIcons.Sun else EosIcons.Moon,
+                if (p.night) IrideIcons.Sun else IrideIcons.Moon,
                 if (p.night) "Disattiva modalità notte" else "Attiva modalità notte",
                 vm::toggleNight,
                 tint = p.muted,
@@ -80,20 +82,24 @@ fun ConnectScreen(vm: MainViewModel) {
 
         HeroIris(busy = vm.busy, error = vm.statusError)
 
-        Text("Collega la tua EOS", style = MaterialTheme.typography.displaySmall, color = p.text)
+        Text("Collega la tua fotocamera", style = MaterialTheme.typography.displaySmall, color = p.text)
         Spacer(Modifier.height(6.dp))
         Text(
-            "Scatto remoto, live view, intervallometro e RAW originali via Wi-Fi. Internet resta attivo sui dati mobili.",
+            "Canon, Nikon, Sony e altre marche via Wi-Fi: scatto remoto, live view, intervallometro e RAW originali. Internet resta attivo sui dati mobili.",
             style = MaterialTheme.typography.bodyMedium,
             color = p.muted,
         )
         Spacer(Modifier.height(24.dp))
 
+        Text("Marca", style = MaterialTheme.typography.labelMedium, color = p.muted)
+        Spacer(Modifier.height(8.dp))
+        BrandPicker(vm.brand) { vm.brand = it }
+        Spacer(Modifier.height(20.dp))
         Text("Come colleghi la fotocamera", style = MaterialTheme.typography.labelMedium, color = p.muted)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ModeTile(
-                icon = EosIcons.Hotspot,
+                icon = IrideIcons.Hotspot,
                 title = "Hotspot",
                 caption = "La fotocamera entra nell'hotspot del telefono",
                 selected = vm.mode == MainViewModel.Mode.HOTSPOT,
@@ -101,7 +107,7 @@ fun ConnectScreen(vm: MainViewModel) {
                 modifier = Modifier.weight(1f),
             )
             ModeTile(
-                icon = EosIcons.Wifi,
+                icon = IrideIcons.Wifi,
                 title = "Wi-Fi fotocamera",
                 caption = "Il telefono entra nella rete della fotocamera",
                 selected = vm.mode == MainViewModel.Mode.CAMERA_WIFI,
@@ -117,13 +123,13 @@ fun ConnectScreen(vm: MainViewModel) {
         ) {
             Column {
                 Spacer(Modifier.height(16.dp))
-                EosField("Nome della rete", vm.ssid, { vm.ssid = it }, placeholder = "EOS6D-…")
+                IrideField("Nome della rete", vm.ssid, { vm.ssid = it }, placeholder = ssidHint(vm.brand))
                 Spacer(Modifier.height(12.dp))
-                EosField("Chiave di crittografia", vm.password, { vm.password = it }, secret = true, placeholder = "Mostrata sul display della fotocamera")
+                IrideField("Chiave di crittografia", vm.password, { vm.password = it }, secret = true, placeholder = "Mostrata sul display della fotocamera")
             }
         }
         Spacer(Modifier.height(16.dp))
-        EosField(
+        IrideField(
             "Indirizzo IP",
             vm.host,
             { vm.host = it },
@@ -135,7 +141,7 @@ fun ConnectScreen(vm: MainViewModel) {
         if (vm.busy) {
             PrimaryButton("Annulla", vm::cancelConnect, Modifier.fillMaxWidth(), danger = true)
         } else {
-            PrimaryButton("Collega", vm::connect, Modifier.fillMaxWidth(), icon = EosIcons.Camera)
+            PrimaryButton("Collega", vm::connect, Modifier.fillMaxWidth(), icon = IrideIcons.Camera)
         }
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -159,14 +165,21 @@ fun ConnectScreen(vm: MainViewModel) {
         Hairline()
         Expandable("Come preparare la fotocamera", initiallyOpen = false) {
             Column(Modifier.padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SetupStep(1, "Menu Wi-Fi → Attiva, poi scegli la funzione Smartphone.")
+                SetupStep(1, firstStep(vm.brand))
                 if (vm.mode == MainViewModel.Mode.HOTSPOT) {
                     SetupStep(2, "Accendi l'hotspot del telefono e collega la fotocamera a quella rete.")
                 } else {
                     SetupStep(2, "Scegli la modalità punto di accesso della fotocamera e copia qui nome della rete e chiave.")
                 }
-                SetupStep(3, "Premi Collega. Se l'indirizzo IP è vuoto, EosLink cerca la fotocamera da solo.")
-                SetupStep(4, "Se la fotocamera chiede di confermare «EosLink», premi OK.")
+                SetupStep(3, "Premi Collega. Se l'indirizzo IP è vuoto, Iride cerca la fotocamera da solo.")
+                SetupStep(4, "Se la fotocamera chiede di confermare «Iride», premi OK.")
+                if (vm.brand == Brand.AUTO) {
+                    Text(
+                        "Con Automatico Iride riconosce da sola Canon, Nikon e Sony. Per le altre marche usa i comandi standard.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = p.muted,
+                    )
+                }
             }
         }
         Hairline()
@@ -190,7 +203,7 @@ fun ConnectScreen(vm: MainViewModel) {
 
 @Composable
 private fun HeroIris(busy: Boolean, error: Boolean) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val t = rememberInfiniteTransition(label = "hero")
     val spin by t.animateFloat(
         0f, (2 * Math.PI).toFloat(),
@@ -231,7 +244,7 @@ private fun ModeTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val src = remember { MutableInteractionSource() }
     val border by animateColorAsState(if (selected) p.lcd else p.groove, label = "tileB")
     val iconBg by animateColorAsState(if (selected) p.lcd else p.groove, label = "tileI")
@@ -263,7 +276,7 @@ private fun ModeTile(
 
 @Composable
 private fun SetupStep(n: Int, text: String) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Row(verticalAlignment = Alignment.Top) {
         Box(
             Modifier
@@ -277,4 +290,46 @@ private fun SetupStep(n: Int, text: String) {
         Spacer(Modifier.width(12.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, color = p.text, modifier = Modifier.padding(top = 2.dp))
     }
+}
+
+
+/** Marche con driver disponibile, nell'ordine mostrato. */
+val SupportedBrands = listOf(Brand.AUTO, Brand.CANON, Brand.NIKON, Brand.SONY, Brand.OTHER_PTP)
+
+@Composable
+private fun BrandPicker(selected: Brand, onSelect: (Brand) -> Unit) {
+    val p = LocalIride.current
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SupportedBrands.forEach { b ->
+            val sel = b == selected
+            val bg by animateColorAsState(if (sel) p.lcd else Color.Transparent, label = "brand")
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(bg)
+                    .border(1.dp, if (sel) p.lcd else p.groove, RoundedCornerShape(18.dp))
+                    .clickable(role = Role.RadioButton) { onSelect(b) }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                Text(b.label, style = MaterialTheme.typography.labelLarge, color = if (sel) p.onLcd else p.text)
+            }
+        }
+    }
+}
+
+private fun ssidHint(b: Brand): String = when (b) {
+    Brand.CANON -> "EOS6D-…"
+    Brand.NIKON -> "Nikon_WU2_… / D750_…"
+    Brand.SONY -> "DIRECT-…"
+    else -> "Nome mostrato dalla fotocamera"
+}
+
+private fun firstStep(b: Brand): String = when (b) {
+    Brand.CANON -> "Menu Wi-Fi → Attiva, poi scegli la funzione Smartphone."
+    Brand.NIKON -> "Attiva il Wi-Fi della fotocamera nella modalità di collegamento a uno smartphone o a un computer."
+    Brand.SONY -> "Nel menu Rete attiva la funzione PC remoto con collegamento Wi-Fi. Se la fotocamera ha l'autenticazione di accesso, disattivala."
+    else -> "Attiva il Wi-Fi della fotocamera nella modalità di collegamento a uno smartphone o a un computer."
 }

@@ -1,4 +1,4 @@
-package it.goletto.eoslink.ui
+package it.goletto.iride.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable

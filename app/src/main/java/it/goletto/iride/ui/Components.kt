@@ -1,4 +1,4 @@
-package it.goletto.eoslink.ui
+package it.goletto.iride.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -56,8 +56,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import it.goletto.eoslink.ui.theme.LocalEos
-import it.goletto.eoslink.ui.theme.readout
+import it.goletto.iride.ui.theme.LocalIride
+import it.goletto.iride.ui.theme.readout
 
 /** Leggera pressione "meccanica": il tasto rientra quando viene premuto. */
 @Composable
@@ -76,7 +76,7 @@ fun PrimaryButton(
     danger: Boolean = false,
     icon: ImageVector? = null,
 ) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val src = remember { MutableInteractionSource() }
     val bg = when {
         !enabled -> p.groove
@@ -111,7 +111,7 @@ fun GhostButton(
     icon: ImageVector? = null,
     enabled: Boolean = true,
 ) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val src = remember { MutableInteractionSource() }
     val fg = if (enabled) p.text else p.muted
     Row(
@@ -144,7 +144,7 @@ fun RoundToggle(
     size: Dp = 52.dp,
     enabled: Boolean = true,
 ) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val src = remember { MutableInteractionSource() }
     val bg by animateColorAsState(if (on) p.lcd else p.raised, label = "tbg")
     val fg by animateColorAsState(if (!enabled) p.groove else if (on) p.onLcd else p.text, label = "tfg")
@@ -167,7 +167,7 @@ fun RoundToggle(
 }
 
 @Composable
-fun IconTap(icon: ImageVector, description: String, onClick: () -> Unit, tint: Color = LocalEos.current.text) {
+fun IconTap(icon: ImageVector, description: String, onClick: () -> Unit, tint: Color = LocalIride.current.text) {
     Box(
         Modifier
             .size(44.dp)
@@ -197,7 +197,7 @@ fun StatusDot(color: Color, pulsing: Boolean, modifier: Modifier = Modifier) {
 
 /** Campo di testo nello stile della app: etichetta sopra, incavo scuro, nessun riquadro Material. */
 @Composable
-fun EosField(
+fun IrideField(
     label: String,
     value: String,
     onChange: (String) -> Unit,
@@ -206,7 +206,7 @@ fun EosField(
     keyboard: KeyboardType = KeyboardType.Text,
     secret: Boolean = false,
 ) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Column(modifier) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = p.muted)
         Spacer(Modifier.height(6.dp))
@@ -249,7 +249,7 @@ fun LcdStepper(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Column(
         modifier
             .clip(RoundedCornerShape(18.dp))
@@ -273,15 +273,15 @@ fun LcdStepper(
         Text(unit, style = MaterialTheme.typography.labelSmall, color = p.muted)
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StepKey(EosIcons.Minus, "Diminuisci $label", enabled, onMinus)
-            StepKey(EosIcons.Plus, "Aumenta $label", enabled, onPlus)
+            StepKey(IrideIcons.Minus, "Diminuisci $label", enabled, onMinus)
+            StepKey(IrideIcons.Plus, "Aumenta $label", enabled, onPlus)
         }
     }
 }
 
 @Composable
 private fun StepKey(icon: ImageVector, desc: String, enabled: Boolean, onClick: () -> Unit) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val src = remember { MutableInteractionSource() }
     Box(
         Modifier
@@ -304,7 +304,7 @@ fun Expandable(
     initiallyOpen: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     var open by rememberSaveable(title) { mutableStateOf(initiallyOpen) }
     val angle by animateFloatAsState(if (open) 90f else 0f, label = "chev")
     Column(modifier.fillMaxWidth()) {
@@ -317,7 +317,7 @@ fun Expandable(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(title, style = MaterialTheme.typography.titleSmall, color = p.text, modifier = Modifier.weight(1f))
-            Icon(EosIcons.Chevron, null, tint = p.muted, modifier = Modifier.size(20.dp).rotate(angle))
+            Icon(IrideIcons.Chevron, null, tint = p.muted, modifier = Modifier.size(20.dp).rotate(angle))
         }
         AnimatedVisibility(open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             content()
@@ -327,7 +327,7 @@ fun Expandable(
 
 @Composable
 fun Hairline(modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().height(1.dp).background(LocalEos.current.groove))
+    Box(modifier.fillMaxWidth().height(1.dp).background(LocalIride.current.groove))
 }
 
 fun formatDuration(totalSeconds: Int): String {
@@ -343,8 +343,8 @@ fun formatDuration(totalSeconds: Int): String {
 }
 
 @Composable
-fun Readout(value: String, label: String, modifier: Modifier = Modifier, size: Int = 28, color: Color = LocalEos.current.lcd) {
-    val p = LocalEos.current
+fun Readout(value: String, label: String, modifier: Modifier = Modifier, size: Int = 28, color: Color = LocalIride.current.lcd) {
+    val p = LocalIride.current
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, style = readout(size), color = color, maxLines = 1)
         Text(label, style = MaterialTheme.typography.labelSmall, color = p.muted, maxLines = 1)

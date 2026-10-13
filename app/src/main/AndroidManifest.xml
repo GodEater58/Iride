@@ -17,8 +17,8 @@
 
     <application
         android:icon="@mipmap/ic_launcher"
-        android:label="EosLink"
-        android:theme="@style/Theme.EosLink"
+        android:label="Iride"
+        android:theme="@style/Theme.Iride"
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"

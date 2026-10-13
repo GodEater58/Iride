@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "EosLink"
+rootProject.name = "Iride"
 include(":app")

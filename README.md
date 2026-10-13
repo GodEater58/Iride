@@ -1,4 +1,4 @@
-# EosLink
+# Iride
 
 App Android per il controllo remoto delle Canon EOS via Wi-Fi (PTP/IP), pensata come alternativa più completa a Camera Connect. Obiettivo principale: Canon 6D, da provare anche sulla 1300D.
 
@@ -14,7 +14,7 @@ App Android per il controllo remoto delle Canon EOS via Wi-Fi (PTP/IP), pensata 
 | Intervallometro | Preset, numero scatti, pausa, posa Bulb oltre i 30 s, durata stimata |
 | Galleria | Raggruppata per giorno, filtro RAW/JPG, anteprima, selezione multipla |
 | Download dei **RAW originali (CR2)** | Camera Connect li converte in JPEG |
-| Sottocartelle Light / Dark / Flat / Bias | File salvati in `Download/EosLink/<cartella>` |
+| Sottocartelle Light / Dark / Flat / Bias | File salvati in `Download/Iride/<cartella>` |
 | Modalità notte | Rosso su nero per non perdere l'adattamento al buio |
 
 Lo storico delle versioni è in [CHANGELOG.md](CHANGELOG.md).
@@ -27,8 +27,8 @@ Ogni push su `main` compila l'APK con GitHub Actions e lo pubblica nella pagina 
 
 1. Attiva l'hotspot del telefono.
 2. Sulla fotocamera: Wi-Fi → Attiva → funzione Smartphone, e collegala alla rete dell'hotspot.
-3. In EosLink scegli "Hotspot del telefono o stessa rete" e premi **Connetti**.
-4. Se la fotocamera chiede di confermare il dispositivo «EosLink…», premi OK.
+3. In Iride scegli "Hotspot del telefono o stessa rete" e premi **Connetti**.
+4. Se la fotocamera chiede di confermare il dispositivo «Iride…», premi OK.
 
 ## Stato
 

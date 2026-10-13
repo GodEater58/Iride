@@ -1,4 +1,4 @@
-package it.goletto.eoslink
+package it.goletto.iride
 
 import android.app.Application
 import android.content.ContentResolver
@@ -13,7 +13,6 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import android.webkit.MimeTypeMap
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -25,13 +24,15 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import it.goletto.eoslink.net.CameraNetwork
-import it.goletto.eoslink.ptp.CamFile
-import it.goletto.eoslink.ptp.CanonCamera
-import it.goletto.eoslink.ptp.Expo
-import it.goletto.eoslink.ptp.PtpIpClient
-import it.goletto.eoslink.ptp.PtpResp
-import it.goletto.eoslink.ptp.hex
+import it.goletto.iride.net.CameraNetwork
+import it.goletto.iride.camera.Brand
+import it.goletto.iride.camera.CamFile
+import it.goletto.iride.camera.CameraDriver
+import it.goletto.iride.camera.Capabilities
+import it.goletto.iride.camera.DriverFactory
+import it.goletto.iride.camera.ExpoKey
+import it.goletto.iride.camera.ExposureState
+import it.goletto.iride.camera.Shot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,19 +50,6 @@ import java.util.Locale
 import kotlin.concurrent.thread
 import kotlin.math.roundToInt
 
-@Immutable
-data class Exposure(
-    val values: Map<Int, Int> = emptyMap(),
-    val allowed: Map<Int, List<Int>> = emptyMap(),
-) {
-    fun text(prop: Int): String {
-        val v = values[prop] ?: return "--"
-        return if (prop == Expo.SHOTS) v.toString() else Expo.format(prop, v)
-    }
-
-    fun canEdit(prop: Int): Boolean = (allowed[prop]?.size ?: 0) > 1
-}
-
 data class LogLine(val time: String, val text: String, val error: Boolean)
 
 enum class SeqPhase { IDLE, EXPOSING, WAITING, BUSY }
@@ -72,18 +60,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     enum class Mode { HOTSPOT, CAMERA_WIFI }
 
-    private val prefs = app.getSharedPreferences("eoslink", Context.MODE_PRIVATE)
+    private val prefs = app.getSharedPreferences("iride", Context.MODE_PRIVATE)
     private val net = CameraNetwork(app)
     private val main = Handler(Looper.getMainLooper())
     private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.ITALY)
 
-    private var client: PtpIpClient? = null
-    private var camera: CanonCamera? = null
+    private var camera: CameraDriver? = null
     private var connectJob: Job? = null
     private var pollJob: Job? = null
     private var liveJob: Job? = null
     private var intervalJob: Job? = null
-    private val thumbLoading = HashSet<Int>()
+    private val thumbLoading = HashSet<String>()
     private var lastPropsVersion = -1
 
     // Aspetto
@@ -106,6 +93,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var mode by mutableStateOf(
         runCatching { Mode.valueOf(prefs.getString("mode", null) ?: "HOTSPOT") }.getOrDefault(Mode.HOTSPOT)
     )
+    var brand by mutableStateOf(
+        runCatching { Brand.valueOf(prefs.getString("brand", null) ?: "AUTO") }.getOrDefault(Brand.AUTO)
+    )
+    var connectedBrand by mutableStateOf(Brand.AUTO)
+        private set
+    var caps by mutableStateOf(Capabilities())
+        private set
     var ssid by mutableStateOf(prefs.getString("ssid", "") ?: "")
     var password by mutableStateOf(prefs.getString("pass", "") ?: "")
     var host by mutableStateOf(prefs.getString("host", "") ?: "")
@@ -131,7 +125,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var autofocus by mutableStateOf(true)
     var shotTick by mutableIntStateOf(0)
         private set
-    var exposure by mutableStateOf(Exposure())
+    var exposure by mutableStateOf(ExposureState())
         private set
 
     // Intervallometro
@@ -162,8 +156,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // Galleria
     val files = mutableStateListOf<CamFile>()
-    val thumbs = mutableStateMapOf<Int, ImageBitmap>()
-    var selected by mutableStateOf(setOf<Int>())
+    val thumbs = mutableStateMapOf<String, ImageBitmap>()
+    var selected by mutableStateOf(setOf<String>())
         private set
     var subfolder by mutableStateOf("")
     var galleryStatus by mutableStateOf("")
@@ -183,7 +177,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val lower = msg.lowercase(Locale.ROOT)
         val err = listOf("errore", "fallit", "rifiut", "persa", "interrott", "non riuscit").any { it in lower }
         val line = LogLine(timeFmt.format(Date()), msg, err)
-        Log.d("EosLink", msg)
+        Log.d("Iride", msg)
         main.post {
             logs.add(line)
             if (logs.size > 500) logs.removeAt(0)
@@ -205,6 +199,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun savePrefs() {
         prefs.edit()
             .putString("mode", mode.name)
+            .putString("brand", brand.name)
             .putString("ssid", ssid)
             .putString("pass", password)
             .putString("host", host)
@@ -244,13 +239,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 setStatus("Collegamento a $target… conferma sulla fotocamera se richiesto")
-                val c = PtpIpClient(net.socketFactory(), ::log)
-                client = c
-                withContext(Dispatchers.IO) { c.connect(target, guid(), "EosLink ${Build.MODEL}") }
-                val cam = CanonCamera(c, ::log)
-                withContext(Dispatchers.IO) { cam.initialize() }
+                val cam = withContext(Dispatchers.IO) {
+                    DriverFactory.connectPtp(brand, target, net.socketFactory(), guid(), "Iride ${Build.MODEL}", ::log)
+                }
                 camera = cam
-                model = cam.model.ifEmpty { c.cameraName.ifEmpty { "Fotocamera" } }
+                connectedBrand = cam.brand
+                caps = cam.caps
+                if (!cam.caps.autofocusToggle) autofocus = true
+                model = cam.model.ifEmpty { "Fotocamera" }
                 cameraHost = target
                 connected = true
                 setStatus("Collegato a $model")
@@ -286,8 +282,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         pollJob?.cancel()
         liveJob?.cancel()
         intervalJob?.cancel()
-        val c = client
-        client = null
+        val c = camera
         camera = null
         if (c != null) thread(isDaemon = true) { runCatching { c.close() } }
         net.release()
@@ -301,8 +296,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         thumbs.clear()
         thumbLoading.clear()
         selected = emptySet()
-        exposure = Exposure()
+        exposure = ExposureState()
         lastPropsVersion = -1
+        caps = Capabilities()
     }
 
     private fun onConnectionLost(reason: String?) {
@@ -316,18 +312,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         cleanup()
     }
 
-    private fun syncExposure(cam: CanonCamera, force: Boolean = false) {
-        val v = cam.propsVersion
+    private fun syncExposure(cam: CameraDriver, force: Boolean = false) {
+        val v = cam.exposureVersion
         if (!force && v == lastPropsVersion) return
         lastPropsVersion = v
-        val snapshot = Exposure(
-            values = HashMap(cam.props),
-            allowed = cam.allowed.mapValues { it.value.toList() },
-        )
+        val snapshot = cam.exposure()
         main.post { exposure = snapshot }
     }
 
-    /** Le Canon EOS vogliono che la coda eventi venga letta di continuo. */
+    /** Lettura periodica: nuovi file, esposizione, eventi. Alcune marche la richiedono di continuo. */
     private fun startPolling() {
         pollJob?.cancel()
         pollJob = viewModelScope.launch(Dispatchers.IO) {
@@ -335,13 +328,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 delay(1200)
                 val cam = camera ?: break
                 try {
-                    val added = cam.pollEvents()
+                    val added = cam.poll()
                     syncExposure(cam)
-                    for (h in added) {
-                        val f = cam.info(h) ?: continue
+                    for (f in added) {
                         log("Nuovo file: ${f.name}")
                         withContext(Dispatchers.Main) {
-                            if (files.none { it.handle == h }) files.add(0, f)
+                            if (files.none { it.id == f.id }) files.add(0, f)
+                            // Sony in PC remoto: il file vive solo nella memoria della fotocamera
+                            if (f.transient) autoTransfer(f)
                         }
                     }
                 } catch (e: CancellationException) {
@@ -354,14 +348,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setExposure(prop: Int, value: Int) {
+    fun setExposure(key: ExpoKey, code: Long) {
         val cam = camera ?: return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                if (cam.setProp(prop, value)) {
-                    log("${Expo.title(prop)}: ${Expo.format(prop, value)}")
+                val label = cam.exposure().options[key]?.firstOrNull { it.code == code }?.label ?: code.toString()
+                if (cam.setExposure(key, code)) {
+                    log("${key.title}: $label")
                 } else {
-                    log("${Expo.title(prop)} non modificabile in questa modalità di scatto")
+                    log("${key.title} non modificabile in questa modalità di scatto")
                 }
                 syncExposure(cam)
             } catch (e: Exception) {
@@ -377,8 +372,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         shotTick++
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val code = cam.capture(autofocus)
-                log(if (code == PtpResp.OK) "Scatto eseguito" else "Scatto non riuscito (${hex(code)})${if (autofocus) ": prova senza autofocus" else ""}")
+                val shot = cam.capture(autofocus)
+                log(
+                    when (shot) {
+                        Shot.OK -> "Scatto eseguito"
+                        Shot.BUSY -> "Fotocamera occupata, riprova tra un attimo"
+                        Shot.FAILED -> "Scatto non riuscito${if (autofocus) ": prova senza autofocus" else ""}"
+                    }
+                )
             } catch (e: Exception) {
                 log("Scatto fallito: ${e.message}")
             }
@@ -533,13 +534,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Ripete il comando mentre la fotocamera è occupata (posa precedente, scrittura su scheda). */
-    private suspend fun retryWhileBusy(label: String, action: () -> Int) {
+    private suspend fun retryWhileBusy(label: String, action: () -> Shot) {
         val start = SystemClock.elapsedRealtime()
         while (true) {
-            val code = withContext(Dispatchers.IO) { action() }
-            if (code == PtpResp.OK) return
+            val shot = withContext(Dispatchers.IO) { action() }
+            if (shot == Shot.OK) return
             if (SystemClock.elapsedRealtime() - start > 120_000) {
-                throw IOException("fotocamera occupata da oltre 2 minuti (${hex(code)})")
+                throw IOException("la fotocamera non accetta lo scatto da oltre 2 minuti")
             }
             seqPhase = SeqPhase.BUSY
             intervalStatus = "$label · la fotocamera sta salvando, riprovo…"
@@ -573,12 +574,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun loadThumb(handle: Int) {
+    fun loadThumb(file: CamFile) {
+        val handle = file.id
         if (thumbs.containsKey(handle) || !thumbLoading.add(handle)) return
         val cam = camera ?: return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val data = cam.thumbnail(handle) ?: return@launch
+                val data = cam.thumbnail(file) ?: return@launch
                 val bmp = BitmapFactory.decodeByteArray(data, 0, data.size) ?: return@launch
                 val ib = bmp.asImageBitmap()
                 withContext(Dispatchers.Main) { thumbs[handle] = ib }
@@ -590,11 +592,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val selecting: Boolean get() = selected.isNotEmpty()
 
-    fun toggleSelect(handle: Int) {
+    fun toggleSelect(handle: String) {
         selected = if (handle in selected) selected - handle else selected + handle
     }
 
-    fun selectAll(handles: Collection<Int>) {
+    fun selectAll(handles: Collection<String>) {
         selected = handles.toSet()
     }
 
@@ -602,15 +604,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         selected = emptySet()
     }
 
-    fun downloadOne(handle: Int) {
+    fun downloadOne(handle: String) {
         selected = setOf(handle)
         downloadSelected()
+    }
+
+    /** Scarica subito un file che la fotocamera tiene solo in memoria. */
+    private fun autoTransfer(f: CamFile) {
+        val cam = camera ?: return
+        val resolver = getApplication<Application>().contentResolver
+        val sub = subfolder
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                saveFile(resolver, cam, f, sub) { _, _ -> }
+                log("Salvato sul telefono: ${f.name}")
+            } catch (e: Exception) {
+                log("Download di ${f.name} fallito: ${e.message}")
+            }
+        }
     }
 
     fun downloadSelected() {
         val cam = camera ?: return
         if (downloading) return
-        val list = files.filter { it.handle in selected }
+        val list = files.filter { it.id in selected }
         if (list.isEmpty()) return
         val resolver = getApplication<Application>().contentResolver
         val sub = subfolder
@@ -642,7 +659,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     log("Download di ${f.name} fallito: ${e.message}")
                 }
             }
-            val dest = "Download/EosLink" + if (sub.isNotEmpty()) "/$sub" else ""
+            val dest = "Download/Iride" + if (sub.isNotEmpty()) "/$sub" else ""
             galleryStatus = "Scaricati $ok di ${list.size} file in $dest"
             log(galleryStatus)
             selected = emptySet()
@@ -653,7 +670,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun saveFile(
         resolver: ContentResolver,
-        cam: CanonCamera,
+        cam: CameraDriver,
         f: CamFile,
         sub: String,
         progress: (Long, Long) -> Unit,
@@ -665,7 +682,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             put(MediaStore.MediaColumns.MIME_TYPE, mime)
             put(
                 MediaStore.MediaColumns.RELATIVE_PATH,
-                Environment.DIRECTORY_DOWNLOADS + "/EosLink" + if (sub.isNotEmpty()) "/$sub" else ""
+                Environment.DIRECTORY_DOWNLOADS + "/Iride" + if (sub.isNotEmpty()) "/$sub" else ""
             )
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
@@ -673,13 +690,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ?: throw IOException("impossibile creare il file sul telefono")
         try {
             val stream = resolver.openOutputStream(uri) ?: throw IOException("impossibile scrivere il file")
-            val ok = stream.use { raw ->
+            stream.use { raw ->
                 val buffered = BufferedOutputStream(raw, 1 shl 20)
-                val result = cam.download(f, buffered, progress)
+                cam.download(f, buffered, progress)
                 buffered.flush()
-                result
             }
-            if (!ok) throw IOException("la fotocamera ha rifiutato il download")
             val done = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
             resolver.update(uri, done, null, null)
         } catch (e: Exception) {

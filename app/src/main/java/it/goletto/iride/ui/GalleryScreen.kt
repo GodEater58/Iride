@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 
-package it.goletto.eoslink.ui
+package it.goletto.iride.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -60,10 +60,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import it.goletto.eoslink.MainViewModel
-import it.goletto.eoslink.ptp.CamFile
-import it.goletto.eoslink.ui.theme.LocalEos
-import it.goletto.eoslink.ui.theme.readout
+import it.goletto.iride.MainViewModel
+import it.goletto.iride.camera.CamFile
+import it.goletto.iride.ui.theme.LocalIride
+import it.goletto.iride.ui.theme.readout
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -90,15 +90,11 @@ private fun timeLabel(captureDate: String): String {
 
 private fun sizeLabel(bytes: Long): String = String.format(Locale.ITALY, "%.1f MB", bytes / 1048576.0)
 
-private fun kind(f: CamFile) = when {
-    f.isRaw -> "RAW"
-    f.isJpeg -> "JPG"
-    else -> f.name.substringAfterLast('.', "File").uppercase(Locale.ROOT)
-}
+private fun kind(f: CamFile) = f.kind
 
 @Composable
 fun GalleryScreen(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     var filter by rememberSaveable { mutableStateOf(Filter.ALL) }
     var preview by remember { mutableStateOf<CamFile?>(null) }
 
@@ -136,10 +132,10 @@ fun GalleryScreen(vm: MainViewModel) {
                 )
             }
             if (vm.selecting) {
-                IconTap(EosIcons.Check, "Seleziona tutti", { vm.selectAll(shown.map { it.handle }) }, tint = p.text)
-                IconTap(EosIcons.Close, "Annulla selezione", vm::clearSelection, tint = p.text)
+                IconTap(IrideIcons.Check, "Seleziona tutti", { vm.selectAll(shown.map { it.id }) }, tint = p.text)
+                IconTap(IrideIcons.Close, "Annulla selezione", vm::clearSelection, tint = p.text)
             } else {
-                IconTap(EosIcons.Refresh, "Aggiorna", vm::refreshFiles, tint = p.muted)
+                IconTap(IrideIcons.Refresh, "Aggiorna", vm::refreshFiles, tint = p.muted)
             }
         }
 
@@ -176,6 +172,14 @@ fun GalleryScreen(vm: MainViewModel) {
             }
         }
 
+        if (!vm.caps.cardBrowsing && vm.caps.galleryNote.isNotEmpty() && shown.isNotEmpty()) {
+            Text(
+                vm.caps.galleryNote,
+                style = MaterialTheme.typography.bodySmall,
+                color = p.muted,
+                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 6.dp),
+            )
+        }
         Box(Modifier.weight(1f)) {
             if (shown.isEmpty()) {
                 EmptyGallery(vm, filter != Filter.ALL)
@@ -194,13 +198,13 @@ fun GalleryScreen(vm: MainViewModel) {
                                 Text("${list.size}", style = readout(15), color = p.muted)
                             }
                         }
-                        items(list, key = { it.handle }) { f ->
+                        items(list, key = { it.id }) { f ->
                             Tile(
                                 vm = vm,
                                 f = f,
-                                selected = f.handle in vm.selected,
-                                onClick = { if (vm.selecting) vm.toggleSelect(f.handle) else preview = f },
-                                onLongClick = { vm.toggleSelect(f.handle) },
+                                selected = f.id in vm.selected,
+                                onClick = { if (vm.selecting) vm.toggleSelect(f.id) else preview = f },
+                                onLongClick = { vm.toggleSelect(f.id) },
                             )
                         }
                     }
@@ -225,13 +229,13 @@ fun GalleryScreen(vm: MainViewModel) {
 
 @Composable
 private fun EmptyGallery(vm: MainViewModel, filtered: Boolean) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Column(
         Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(EosIcons.Gallery, null, tint = p.groove, modifier = Modifier.size(56.dp))
+        Icon(IrideIcons.Gallery, null, tint = p.groove, modifier = Modifier.size(56.dp))
         Spacer(Modifier.height(14.dp))
         Text(
             when {
@@ -244,7 +248,7 @@ private fun EmptyGallery(vm: MainViewModel, filtered: Boolean) {
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "Le foto scattate da EosLink compaiono qui appena la fotocamera le salva.",
+            vm.caps.galleryNote.ifEmpty { "Le foto scattate da Iride compaiono qui appena la fotocamera le salva." },
             style = MaterialTheme.typography.bodySmall,
             color = p.muted,
         )
@@ -253,8 +257,8 @@ private fun EmptyGallery(vm: MainViewModel, filtered: Boolean) {
 
 @Composable
 private fun Tile(vm: MainViewModel, f: CamFile, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val p = LocalEos.current
-    LaunchedEffect(f.handle) { vm.loadThumb(f.handle) }
+    val p = LocalIride.current
+    LaunchedEffect(f.id) { vm.loadThumb(f) }
     val inset by animateFloatAsState(if (selected) 0.88f else 1f, tween(160), label = "inset")
     Box(
         Modifier
@@ -263,7 +267,7 @@ private fun Tile(vm: MainViewModel, f: CamFile, selected: Boolean, onClick: () -
             .background(if (selected) p.lcdDim else p.raised)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
-        val thumb = vm.thumbs[f.handle]
+        val thumb = vm.thumbs[f.id]
         Box(
             Modifier
                 .fillMaxSize()
@@ -298,7 +302,7 @@ private fun Tile(vm: MainViewModel, f: CamFile, selected: Boolean, onClick: () -
                     .border(1.5.dp, if (selected) p.lcd else Color.White, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                if (selected) Icon(EosIcons.Check, null, tint = p.onLcd, modifier = Modifier.size(14.dp))
+                if (selected) Icon(IrideIcons.Check, null, tint = p.onLcd, modifier = Modifier.size(14.dp))
             }
         }
     }
@@ -306,7 +310,7 @@ private fun Tile(vm: MainViewModel, f: CamFile, selected: Boolean, onClick: () -
 
 @Composable
 private fun DownloadBar(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val frac by animateFloatAsState(vm.dlFraction, tween(250), label = "dl")
     Column(
         Modifier
@@ -328,7 +332,7 @@ private fun DownloadBar(vm: MainViewModel) {
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "Sulla 6D ogni RAW via Wi-Fi può richiedere fino a 20 secondi.",
+                "Via Wi-Fi un RAW può richiedere fino a 20 secondi.",
                 style = MaterialTheme.typography.labelSmall,
                 color = p.muted,
             )
@@ -351,12 +355,12 @@ private fun DownloadBar(vm: MainViewModel) {
                 }
             }
             Spacer(Modifier.height(14.dp))
-            val bytes = vm.files.filter { it.handle in vm.selected }.sumOf { it.size }
+            val bytes = vm.files.filter { it.id in vm.selected }.sumOf { it.size }
             PrimaryButton(
                 "Scarica ${vm.selected.size} file (${sizeLabel(bytes)})",
                 vm::downloadSelected,
                 Modifier.fillMaxWidth(),
-                icon = EosIcons.Download,
+                icon = IrideIcons.Download,
             )
         }
     }
@@ -364,7 +368,7 @@ private fun DownloadBar(vm: MainViewModel) {
 
 @Composable
 private fun PreviewSheet(vm: MainViewModel, f: CamFile, onDismiss: () -> Unit) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = p.raised, contentColor = p.text) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
@@ -376,7 +380,7 @@ private fun PreviewSheet(vm: MainViewModel, f: CamFile, onDismiss: () -> Unit) {
                     .background(Color.Black),
                 contentAlignment = Alignment.Center,
             ) {
-                val thumb = vm.thumbs[f.handle]
+                val thumb = vm.thumbs[f.id]
                 if (thumb != null) {
                     Image(thumb, f.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 } else {
@@ -398,20 +402,20 @@ private fun PreviewSheet(vm: MainViewModel, f: CamFile, onDismiss: () -> Unit) {
                 GhostButton(
                     "Seleziona",
                     onClick = {
-                        vm.toggleSelect(f.handle)
+                        vm.toggleSelect(f.id)
                         onDismiss()
                     },
                     modifier = Modifier.weight(1f).height(56.dp),
-                    icon = EosIcons.Check,
+                    icon = IrideIcons.Check,
                 )
                 PrimaryButton(
                     "Scarica originale",
                     onClick = {
-                        vm.downloadOne(f.handle)
+                        vm.downloadOne(f.id)
                         onDismiss()
                     },
                     modifier = Modifier.weight(1.4f),
-                    icon = EosIcons.Download,
+                    icon = IrideIcons.Download,
                     enabled = !vm.downloading,
                 )
             }

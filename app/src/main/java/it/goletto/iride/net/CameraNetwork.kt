@@ -1,4 +1,4 @@
-package it.goletto.eoslink.net
+package it.goletto.iride.net
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -8,7 +8,7 @@ import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
-import it.goletto.eoslink.ptp.PtpIp
+import it.goletto.iride.ptp.PtpIp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll

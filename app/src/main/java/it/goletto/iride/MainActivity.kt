@@ -1,4 +1,4 @@
-package it.goletto.eoslink
+package it.goletto.iride
 
 import android.Manifest
 import android.graphics.Color
@@ -12,8 +12,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
-import it.goletto.eoslink.ui.EosLinkApp
-import it.goletto.eoslink.ui.theme.EosTheme
+import it.goletto.iride.ui.IrideApp
+import it.goletto.iride.ui.theme.IrideTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
         permissionLauncher.launch(perms)
 
         setContent {
-            EosTheme(night = vm.night) {
+            IrideTheme(night = vm.night) {
                 val keepOn = vm.keepScreenOn
                 LaunchedEffect(keepOn) {
                     if (keepOn) {
@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
                 }
-                EosLinkApp(vm)
+                IrideApp(vm)
             }
         }
     }

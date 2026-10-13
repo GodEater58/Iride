@@ -1,4 +1,4 @@
-package it.goletto.eoslink.ui
+package it.goletto.iride.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -28,14 +28,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
-import it.goletto.eoslink.LogLine
-import it.goletto.eoslink.MainViewModel
-import it.goletto.eoslink.ui.theme.LocalEos
-import it.goletto.eoslink.ui.theme.readout
+import it.goletto.iride.LogLine
+import it.goletto.iride.MainViewModel
+import it.goletto.iride.ui.theme.LocalIride
+import it.goletto.iride.ui.theme.readout
 
 @Composable
 fun LogScreen(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -54,7 +54,7 @@ fun LogScreen(vm: MainViewModel) {
                     clipboard.setText(AnnotatedString(vm.logText()))
                     copied = true
                 },
-                icon = if (copied) EosIcons.Check else EosIcons.Copy,
+                icon = if (copied) IrideIcons.Check else IrideIcons.Copy,
             )
         }
         Box(
@@ -88,7 +88,7 @@ fun LogScreen(vm: MainViewModel) {
 
 @Composable
 fun LogRow(line: LogLine) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Row {
         Text(line.time, style = readout(14, androidx.compose.ui.text.font.FontWeight.Medium), color = p.muted)
         Spacer(Modifier.width(10.dp))

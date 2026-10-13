@@ -1,4 +1,4 @@
-package it.goletto.eoslink.ptp
+package it.goletto.iride.ptp
 
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -17,6 +17,9 @@ class PtpException(message: String) : IOException(message)
 class PtpResponse(val code: Int, val params: IntArray, val data: ByteArray) {
     val ok: Boolean get() = code == PtpResp.OK
 }
+
+/** Evento PTP standard ricevuto sul canale eventi (es. ObjectAdded 0x4002). */
+class PtpEvent(val code: Int, val params: IntArray)
 
 /**
  * Client PTP/IP: un canale comandi/dati e un canale eventi, entrambi TCP sulla porta 15740.
@@ -41,6 +44,9 @@ class PtpIpClient(
 
     var cameraName: String = ""
         private set
+
+    /** Coda degli eventi standard: i driver la svuotano durante il polling. */
+    val events = java.util.concurrent.ConcurrentLinkedQueue<PtpEvent>()
 
     fun connect(host: String, guid: ByteArray, friendlyName: String) {
         val s = socketFactory.createSocket()
@@ -95,13 +101,19 @@ class PtpIpClient(
     }
 
     private fun startEventReader(inp: InputStream, out: OutputStream) {
-        thread(isDaemon = true, name = "ptpip-events") {
+        thread(isDaemon = true, name = "iride-events") {
             try {
                 while (isOpen) {
                     val (type, p) = readPacket(inp)
                     when (type) {
                         PtpIp.PING -> synchronized(out) { writePacket(out, PtpIp.PONG, ByteArray(0)) }
-                        PtpIp.EVENT -> if (p.size >= 2) log("Evento PTP ${hex(le16(p, 0))}")
+                        PtpIp.EVENT -> if (p.size >= 2) {
+                            // payload: codice (u16), transazione (u32), parametri (u32...)
+                            val count = maxOf(0, (p.size - 6) / 4)
+                            val params = IntArray(count) { le32(p, 6 + it * 4) }
+                            events.add(PtpEvent(le16(p, 0), params))
+                            while (events.size > 256) events.poll()
+                        }
                         else -> Unit
                     }
                 }

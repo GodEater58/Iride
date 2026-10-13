@@ -4,21 +4,21 @@ plugins {
 }
 
 android {
-    namespace = "it.goletto.eoslink"
+    namespace = "it.goletto.iride"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "it.goletto.eoslink"
+        applicationId = "it.goletto.iride"
         minSdk = 29
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     signingConfigs {
         // Chiave fissa: ogni build della GitHub Action si installa sopra la precedente
         getByName("debug") {
-            storeFile = file("eoslink-debug.keystore")
+            storeFile = file("iride-debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"

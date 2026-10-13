@@ -1,4 +1,4 @@
-package it.goletto.eoslink.ui
+package it.goletto.iride.ui
 
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 
 /** Icone dell'app (24×24). Quelle a tratto vengono comunque tinte da Icon(). */
-object EosIcons {
+object IrideIcons {
     private fun filled(name: String, vararg paths: String): ImageVector {
         val b = ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)
         for (p in paths) b.addPath(addPathNodes(p), fill = SolidColor(Color.White))

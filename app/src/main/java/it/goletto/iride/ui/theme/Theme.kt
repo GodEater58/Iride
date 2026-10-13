@@ -1,4 +1,4 @@
-package it.goletto.eoslink.ui.theme
+package it.goletto.iride.ui.theme
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -16,7 +16,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import it.goletto.eoslink.R
+import it.goletto.iride.R
 
 /**
  * Palette ispirata al corpo di una reflex: grafite opaca, display superiore
@@ -24,7 +24,7 @@ import it.goletto.eoslink.R
  * In modalità notte tutto diventa rosso su nero per non perdere l'adattamento al buio.
  */
 @Immutable
-data class EosPalette(
+data class IridePalette(
     val body: Color,        // sfondo
     val raised: Color,      // superfici rialzate (pannelli, tasti)
     val groove: Color,      // incavi, campi, linee
@@ -38,7 +38,7 @@ data class EosPalette(
     val night: Boolean,
 )
 
-val DayPalette = EosPalette(
+val DayPalette = IridePalette(
     body = Color(0xFF1C1E21),
     raised = Color(0xFF26292D),
     groove = Color(0xFF34383E),
@@ -52,7 +52,7 @@ val DayPalette = EosPalette(
     night = false,
 )
 
-val NightPalette = EosPalette(
+val NightPalette = IridePalette(
     body = Color(0xFF000000),
     raised = Color(0xFF140303),
     groove = Color(0xFF2A0807),
@@ -66,7 +66,7 @@ val NightPalette = EosPalette(
     night = true,
 )
 
-val LocalEos = staticCompositionLocalOf { DayPalette }
+val LocalIride = staticCompositionLocalOf { DayPalette }
 
 val Barlow = FontFamily(
     Font(R.font.barlow_regular, FontWeight.Normal),
@@ -89,7 +89,7 @@ fun readout(size: Int, weight: FontWeight = FontWeight.SemiBold) = TextStyle(
     letterSpacing = 0.2.sp,
 )
 
-private val EosTypography = Typography(
+private val IrideTypography = Typography(
     displaySmall = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 40.sp, lineHeight = 44.sp, letterSpacing = (-0.5).sp),
     headlineSmall = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 30.sp),
     titleLarge = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 26.sp),
@@ -104,7 +104,7 @@ private val EosTypography = Typography(
 )
 
 @Composable
-fun EosTheme(night: Boolean, content: @Composable () -> Unit) {
+fun IrideTheme(night: Boolean, content: @Composable () -> Unit) {
     val target = if (night) NightPalette else DayPalette
     val spec = tween<Color>(450)
     val body by animateColorAsState(target.body, spec, label = "body")
@@ -117,7 +117,7 @@ fun EosTheme(night: Boolean, content: @Composable () -> Unit) {
     val onLcd by animateColorAsState(target.onLcd, spec, label = "onLcd")
     val exposure by animateColorAsState(target.exposure, spec, label = "exposure")
     val ok by animateColorAsState(target.ok, spec, label = "ok")
-    val p = EosPalette(body, raised, groove, text, muted, lcd, lcdDim, onLcd, exposure, ok, night)
+    val p = IridePalette(body, raised, groove, text, muted, lcd, lcdDim, onLcd, exposure, ok, night)
 
     val scheme = darkColorScheme(
         primary = p.lcd,
@@ -138,7 +138,7 @@ fun EosTheme(night: Boolean, content: @Composable () -> Unit) {
         error = p.exposure,
         onError = p.onLcd,
     )
-    CompositionLocalProvider(LocalEos provides p) {
-        MaterialTheme(colorScheme = scheme, typography = EosTypography, content = content)
+    CompositionLocalProvider(LocalIride provides p) {
+        MaterialTheme(colorScheme = scheme, typography = IrideTypography, content = content)
     }
 }

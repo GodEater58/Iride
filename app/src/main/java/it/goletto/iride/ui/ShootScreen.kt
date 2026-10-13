@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 
-package it.goletto.eoslink.ui
+package it.goletto.iride.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -81,17 +81,17 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import it.goletto.eoslink.MainViewModel
-import it.goletto.eoslink.SeqPhase
-import it.goletto.eoslink.ptp.Expo
-import it.goletto.eoslink.ui.theme.LocalEos
-import it.goletto.eoslink.ui.theme.readout
+import it.goletto.iride.MainViewModel
+import it.goletto.iride.SeqPhase
+import it.goletto.iride.camera.ExpoKey
+import it.goletto.iride.ui.theme.LocalIride
+import it.goletto.iride.ui.theme.readout
 import kotlinx.coroutines.launch
 import java.util.Locale
 
 @Composable
 fun ShootScreen(vm: MainViewModel) {
-    var dialFor by remember { mutableStateOf<Int?>(null) }
+    var dialFor by remember { mutableStateOf<ExpoKey?>(null) }
     Column(
         Modifier
             .fillMaxSize()
@@ -101,7 +101,9 @@ fun ShootScreen(vm: MainViewModel) {
         Spacer(Modifier.height(4.dp))
         Viewfinder(vm)
         Spacer(Modifier.height(12.dp))
-        ExposurePanel(vm) { dialFor = it }
+        if (vm.caps.exposureControl || vm.exposure.values.isNotEmpty()) {
+            ExposurePanel(vm) { dialFor = it }
+        }
         Spacer(Modifier.height(20.dp))
         ShutterRow(vm)
         Spacer(Modifier.height(28.dp))
@@ -120,7 +122,7 @@ fun ShootScreen(vm: MainViewModel) {
 
 @Composable
 private fun Viewfinder(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     val frame = vm.liveFrame
@@ -230,7 +232,7 @@ private fun Viewfinder(vm: MainViewModel) {
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    EosIcons.Grid,
+                    IrideIcons.Grid,
                     if (vm.gridOn) "Nascondi griglia" else "Mostra griglia",
                     tint = if (vm.gridOn) p.lcd else Color.White,
                     modifier = Modifier.size(20.dp),
@@ -250,13 +252,13 @@ private fun Viewfinder(vm: MainViewModel) {
 
 @Composable
 private fun ViewfinderIdle(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val t = rememberInfiniteTransition(label = "lvwait")
     val breathe by t.animateFloat(0.2f, 0.6f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "b")
     Column(
         Modifier
             .fillMaxSize()
-            .clickable(enabled = !vm.liveOn, role = Role.Button, onClick = vm::toggleLive),
+            .clickable(enabled = !vm.liveOn && vm.caps.liveView, role = Role.Button, onClick = vm::toggleLive),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -269,7 +271,11 @@ private fun ViewfinderIdle(vm: MainViewModel) {
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            if (vm.liveOn) "Avvio del live view…" else "Tocca per avviare il live view",
+            when {
+                !vm.caps.liveView -> "Live view non disponibile per questa fotocamera"
+                vm.liveOn -> "Avvio del live view…"
+                else -> "Tocca per avviare il live view"
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.copy(alpha = 0.75f),
         )
@@ -279,7 +285,7 @@ private fun ViewfinderIdle(vm: MainViewModel) {
 /** Squadrette agli angoli, punto AF centrale e griglia dei terzi. */
 @Composable
 private fun FinderOverlay(grid: Boolean, color: Color, modifier: Modifier) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Canvas(modifier) {
         val w = size.width
         val h = size.height
@@ -313,8 +319,8 @@ private fun FinderOverlay(grid: Boolean, color: Color, modifier: Modifier) {
 // ---------------------------------------------------------------- pannello esposizione
 
 @Composable
-private fun ExposurePanel(vm: MainViewModel, onEdit: (Int) -> Unit) {
-    val p = LocalEos.current
+private fun ExposurePanel(vm: MainViewModel, onEdit: (ExpoKey) -> Unit) {
+    val p = LocalIride.current
     val e = vm.exposure
     Row(
         Modifier
@@ -325,19 +331,21 @@ private fun ExposurePanel(vm: MainViewModel, onEdit: (Int) -> Unit) {
             .padding(vertical = 10.dp, horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ExpoCell(Expo.mode(e.values[Expo.MODE]), "Modo", false, Modifier.weight(0.8f)) {}
+        ExpoCell(e.text(ExpoKey.MODE), ExpoKey.MODE.short, false, Modifier.weight(0.8f)) {}
         PanelDivider()
-        ExpoCell(e.text(Expo.TV), "Tempo", e.canEdit(Expo.TV), Modifier.weight(1.2f)) { onEdit(Expo.TV) }
-        ExpoCell(e.text(Expo.AV), "Diaframma", e.canEdit(Expo.AV), Modifier.weight(1.1f)) { onEdit(Expo.AV) }
-        ExpoCell(e.text(Expo.ISO), "ISO", e.canEdit(Expo.ISO), Modifier.weight(1.1f)) { onEdit(Expo.ISO) }
-        PanelDivider()
-        ExpoCell(e.text(Expo.SHOTS), "Scatti liberi", false, Modifier.weight(1f), dim = true) {}
+        ExpoCell(e.text(ExpoKey.TV), ExpoKey.TV.short, e.canEdit(ExpoKey.TV), Modifier.weight(1.2f)) { onEdit(ExpoKey.TV) }
+        ExpoCell(e.text(ExpoKey.AV), ExpoKey.AV.short, e.canEdit(ExpoKey.AV), Modifier.weight(1.1f)) { onEdit(ExpoKey.AV) }
+        ExpoCell(e.text(ExpoKey.ISO), ExpoKey.ISO.short, e.canEdit(ExpoKey.ISO), Modifier.weight(1.1f)) { onEdit(ExpoKey.ISO) }
+        if (e.values.containsKey(ExpoKey.SHOTS)) {
+            PanelDivider()
+            ExpoCell(e.text(ExpoKey.SHOTS), ExpoKey.SHOTS.short, false, Modifier.weight(1f), dim = true) {}
+        }
     }
 }
 
 @Composable
 private fun PanelDivider() {
-    Box(Modifier.width(1.dp).height(34.dp).background(LocalEos.current.groove))
+    Box(Modifier.width(1.dp).height(34.dp).background(LocalIride.current.groove))
 }
 
 @Composable
@@ -349,7 +357,7 @@ private fun ExpoCell(
     dim: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Column(
         modifier
             .clip(RoundedCornerShape(12.dp))
@@ -372,16 +380,16 @@ private fun ExpoCell(
 
 @Composable
 private fun ShutterRow(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            RoundToggle(EosIcons.LiveView, "Live view", vm.liveOn, vm::toggleLive)
+            RoundToggle(IrideIcons.LiveView, "Live view", vm.liveOn, vm::toggleLive, enabled = vm.caps.liveView)
             ShutterButton(vm)
-            RoundToggle(EosIcons.Focus, "Autofocus", vm.autofocus, { vm.autofocus = !vm.autofocus }, enabled = !vm.intervalRunning)
+            RoundToggle(IrideIcons.Focus, "Autofocus", vm.autofocus, { vm.autofocus = !vm.autofocus }, enabled = !vm.intervalRunning && vm.caps.autofocusToggle)
         }
         AnimatedVisibility(vm.intervalRunning, enter = fadeIn(), exit = fadeOut()) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 14.dp)) {
@@ -398,7 +406,7 @@ private fun ShutterRow(vm: MainViewModel) {
 
 @Composable
 private fun ShutterButton(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val haptics = LocalHapticFeedback.current
     val src = remember { MutableInteractionSource() }
     val iris = remember { Animatable(0.78f) }
@@ -487,10 +495,10 @@ private fun ShutterButton(vm: MainViewModel) {
 
 @Composable
 private fun Intervalometer(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val running = vm.intervalRunning
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(EosIcons.Timer, null, tint = p.lcd, modifier = Modifier.size(22.dp))
+        Icon(IrideIcons.Timer, null, tint = p.lcd, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(10.dp))
         Text("Intervallometro", style = MaterialTheme.typography.titleLarge, color = p.text, modifier = Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End) {
@@ -511,11 +519,11 @@ private fun Intervalometer(vm: MainViewModel) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         LcdStepper("Scatti", vm.intCount, "foto", { vm.intCount = it }, { vm.stepCount(-1) }, { vm.stepCount(1) }, Modifier.weight(1f), enabled = !running)
         LcdStepper("Pausa", vm.intPause, "secondi", { vm.intPause = it }, { vm.stepPause(-1) }, { vm.stepPause(1) }, Modifier.weight(1f), enabled = !running)
-        LcdStepper("Posa B", vm.intBulb, "secondi", { vm.intBulb = it }, { vm.stepBulb(-1) }, { vm.stepBulb(1) }, Modifier.weight(1f), enabled = !running)
+        LcdStepper("Posa B", vm.intBulb, "secondi", { vm.intBulb = it }, { vm.stepBulb(-1) }, { vm.stepBulb(1) }, Modifier.weight(1f), enabled = !running && vm.caps.bulb)
     }
     Spacer(Modifier.height(10.dp))
     Text(
-        "Con Posa B a 0 vale il tempo impostato sulla fotocamera. Per pose oltre 30 secondi metti la ghiera su B.",
+        if (vm.caps.bulb) "Con Posa B a 0 vale il tempo impostato sulla fotocamera. Per pose oltre 30 secondi metti la fotocamera in posa B (su Nikon serve il modo M)." else "La posa B da remoto non è disponibile per questa fotocamera: vale il tempo impostato sulla fotocamera.",
         style = MaterialTheme.typography.bodySmall,
         color = p.muted,
     )
@@ -523,7 +531,7 @@ private fun Intervalometer(vm: MainViewModel) {
     if (running) {
         PrimaryButton("Interrompi sequenza", vm::stopInterval, Modifier.fillMaxWidth(), danger = true)
     } else {
-        PrimaryButton("Avvia sequenza", vm::startInterval, Modifier.fillMaxWidth(), icon = EosIcons.Timer)
+        PrimaryButton("Avvia sequenza", vm::startInterval, Modifier.fillMaxWidth(), icon = IrideIcons.Timer)
         if (vm.intervalStatus.isNotEmpty()) {
             Text(
                 vm.intervalStatus,
@@ -537,7 +545,7 @@ private fun Intervalometer(vm: MainViewModel) {
 
 @Composable
 private fun PresetChip(text: String, enabled: Boolean, onClick: () -> Unit) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val src = remember { MutableInteractionSource() }
     Box(
         Modifier
@@ -554,11 +562,13 @@ private fun PresetChip(text: String, enabled: Boolean, onClick: () -> Unit) {
 // ---------------------------------------------------------------- ghiera valori
 
 @Composable
-private fun DialSheet(vm: MainViewModel, prop: Int, onDismiss: () -> Unit) {
-    val p = LocalEos.current
+private fun DialSheet(vm: MainViewModel, prop: ExpoKey, onDismiss: () -> Unit) {
+    val p = LocalIride.current
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val values = vm.exposure.allowed[prop].orEmpty()
-    val current = vm.exposure.values[prop]
+    val options = vm.exposure.options[prop].orEmpty()
+    val values = options.map { it.code }
+    val labels = options.associate { it.code to it.label }
+    val current = vm.exposure.values[prop]?.code
     val startIndex = values.indexOf(current).coerceAtLeast(0)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -573,15 +583,15 @@ private fun DialSheet(vm: MainViewModel, prop: Int, onDismiss: () -> Unit) {
                 .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(Expo.title(prop), style = MaterialTheme.typography.titleMedium, color = p.muted)
+            Text(prop.title, style = MaterialTheme.typography.titleMedium, color = p.muted)
             Spacer(Modifier.height(4.dp))
             Text(vm.exposure.text(prop), style = readout(56), color = p.lcd)
             Spacer(Modifier.height(16.dp))
             if (values.isEmpty()) {
                 Text("La fotocamera non ha inviato i valori disponibili.", color = p.muted)
             } else {
-                Dial(values, startIndex, format = { Expo.format(prop, it) }) { v ->
-                    if (v != vm.exposure.values[prop]) vm.setExposure(prop, v)
+                Dial(values, startIndex, format = { labels[it] ?: it.toString() }) { v ->
+                    if (v != vm.exposure.values[prop]?.code) vm.setExposure(prop, v)
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -592,8 +602,8 @@ private fun DialSheet(vm: MainViewModel, prop: Int, onDismiss: () -> Unit) {
 
 /** Ghiera orizzontale a scatti: il valore al centro viene applicato quando si ferma. */
 @Composable
-private fun Dial(values: List<Int>, startIndex: Int, format: (Int) -> String, onSelect: (Int) -> Unit) {
-    val p = LocalEos.current
+private fun Dial(values: List<Long>, startIndex: Int, format: (Long) -> String, onSelect: (Long) -> Unit) {
+    val p = LocalIride.current
     val itemW = 76.dp
     val state = rememberLazyListState(initialFirstVisibleItemIndex = startIndex)
     val fling = rememberSnapFlingBehavior(state)

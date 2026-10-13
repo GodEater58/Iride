@@ -1,4 +1,4 @@
-package it.goletto.eoslink.ui
+package it.goletto.iride.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -36,12 +36,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import it.goletto.eoslink.MainViewModel
-import it.goletto.eoslink.ui.theme.LocalEos
+import it.goletto.iride.MainViewModel
+import it.goletto.iride.ui.theme.LocalIride
 
 @Composable
-fun EosLinkApp(vm: MainViewModel) {
-    val p = LocalEos.current
+fun IrideApp(vm: MainViewModel) {
+    val p = LocalIride.current
     Box(Modifier.fillMaxSize().background(p.body)) {
         AnimatedContent(
             targetState = vm.connected,
@@ -55,7 +55,7 @@ fun EosLinkApp(vm: MainViewModel) {
 
 @Composable
 private fun MainScreen(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
     Column(
         Modifier
@@ -89,7 +89,7 @@ private fun MainScreen(vm: MainViewModel) {
 
 @Composable
 private fun TopBar(vm: MainViewModel) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -107,29 +107,29 @@ private fun TopBar(vm: MainViewModel) {
             )
         }
         IconTap(
-            if (p.night) EosIcons.Sun else EosIcons.Moon,
+            if (p.night) IrideIcons.Sun else IrideIcons.Moon,
             if (p.night) "Disattiva modalità notte" else "Attiva modalità notte",
             vm::toggleNight,
             tint = p.muted,
         )
-        IconTap(EosIcons.Power, "Scollega", vm::disconnect, tint = p.muted)
+        IconTap(IrideIcons.Power, "Scollega", vm::disconnect, tint = p.muted)
     }
 }
 
 @Composable
 private fun BottomBar(tab: Int, onTab: (Int) -> Unit, galleryBadge: Int, logAlert: Boolean) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     Column {
         Hairline()
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-            NavItem(EosIcons.Camera, "Scatto", tab == 0, Modifier.weight(1f)) { onTab(0) }
+            NavItem(IrideIcons.Camera, "Scatto", tab == 0, Modifier.weight(1f)) { onTab(0) }
             NavItem(
-                EosIcons.Gallery,
+                IrideIcons.Gallery,
                 if (galleryBadge > 0) "Galleria $galleryBadge" else "Galleria",
                 tab == 1,
                 Modifier.weight(1f),
             ) { onTab(1) }
-            NavItem(EosIcons.Log, "Registro", tab == 2, Modifier.weight(1f), alert = logAlert) { onTab(2) }
+            NavItem(IrideIcons.Log, "Registro", tab == 2, Modifier.weight(1f), alert = logAlert) { onTab(2) }
         }
     }
 }
@@ -143,7 +143,7 @@ private fun NavItem(
     alert: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val p = LocalEos.current
+    val p = LocalIride.current
     val pill by animateColorAsState(if (selected) p.lcd else p.body, label = "pill")
     val fg by animateColorAsState(if (selected) p.onLcd else p.muted, label = "navfg")
     Column(

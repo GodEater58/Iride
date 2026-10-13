@@ -1,4 +1,4 @@
-package it.goletto.eoslink.ptp
+package it.goletto.iride.ptp
 
 /** Tipi di pacchetto PTP/IP (CIPA DC-005). */
 object PtpIp {
@@ -29,6 +29,10 @@ object PtpOp {
     const val GET_OBJECT_INFO = 0x1008
     const val GET_OBJECT = 0x1009
     const val GET_THUMB = 0x100A
+    const val INITIATE_CAPTURE = 0x100E
+    const val GET_DEVICE_PROP_DESC = 0x1014
+    const val GET_DEVICE_PROP_VALUE = 0x1015
+    const val SET_DEVICE_PROP_VALUE = 0x1016
 
     const val CANON_REMOTE_RELEASE = 0x910F
     const val CANON_SET_PROP_EX = 0x9110
@@ -40,6 +44,41 @@ object PtpOp {
     const val CANON_RELEASE_ON = 0x9128
     const val CANON_RELEASE_OFF = 0x9129
     const val CANON_GET_VIEWFINDER = 0x9153
+}
+
+/** Estensioni Nikon (codici da libgphoto2, camlibs/ptp2/ptp.h). */
+object NikonOp {
+    const val GET_EVENT = 0x90C7
+    const val DEVICE_READY = 0x90C8
+    const val CAPTURE_SDRAM = 0x90C0
+    const val START_LIVE_VIEW = 0x9201
+    const val END_LIVE_VIEW = 0x9202
+    const val GET_LIVE_VIEW_IMG = 0x9203
+    const val CAPTURE_REC_IN_MEDIA = 0x9207
+    const val TERMINATE_CAPTURE = 0x920C
+}
+
+/** Estensioni Sony "SDIO" (codici da libgphoto2). */
+object SonyOp {
+    const val SDIO_CONNECT = 0x9201
+    const val GET_EXT_DEVICE_INFO = 0x9202
+    const val SET_EXT_DEVICE_PROP_VALUE = 0x9205
+    const val CONTROL_DEVICE = 0x9207
+    const val GET_ALL_EXT_DEVICE_PROP_INFO = 0x9209
+}
+
+object PtpEvt {
+    const val OBJECT_ADDED = 0x4002
+    const val DEVICE_PROP_CHANGED = 0x4006
+    const val CAPTURE_COMPLETE = 0x400D
+}
+
+/** Proprietà standard PTP. */
+object PtpProp {
+    const val FNUMBER = 0x5007
+    const val EXPOSURE_TIME = 0x500D
+    const val EXPOSURE_PROGRAM = 0x500E
+    const val EXPOSURE_INDEX = 0x500F
 }
 
 object PtpResp {

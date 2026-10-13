@@ -36,18 +36,18 @@ jobs:
           done
 
       - name: Rinomina APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk EosLink-build${{ github.run_number }}.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Iride-build${{ github.run_number }}.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: EosLink-apk
-          path: EosLink-*.apk
+          name: Iride-apk
+          path: Iride-*.apk
 
       - name: Pubblica release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: EosLink build ${{ github.run_number }}
+          name: Iride build ${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           prerelease: true
-          files: EosLink-*.apk
+          files: Iride-*.apk
