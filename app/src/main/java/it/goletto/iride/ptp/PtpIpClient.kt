@@ -36,7 +36,9 @@ class PtpIpClient(
     private var cmdIn: InputStream? = null
     private var cmdOut: OutputStream? = null
     private var transactionId = 0
-    private val lock = java.util.concurrent.locks.ReentrantLock()
+    // equo: le richieste vengono servite in ordine di arrivo, così il live view non resta
+    // in coda dietro a elenco file e miniature
+    private val lock = java.util.concurrent.locks.ReentrantLock(true)
 
     @Volatile
     var isOpen = false

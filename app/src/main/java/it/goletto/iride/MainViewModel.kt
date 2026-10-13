@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Environment
@@ -36,6 +37,7 @@ import it.goletto.iride.camera.Shot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -255,7 +257,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 log("Collegato a $model ($target)")
                 syncExposure(cam, force = true)
                 startPolling()
-                refreshFiles()
+                // la scheda si legge solo quando si apre la galleria: con migliaia di foto
+                // terrebbe occupato il canale per minuti e rallenterebbe il live view
+                filesLoaded = false
             } catch (e: CancellationException) {
                 cleanup()
                 setStatus("Collegamento annullato")
@@ -404,21 +408,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         liveOn = true
         liveJob = viewModelScope.launch(Dispatchers.IO) {
+            // due fasi in parallelo: una scarica i fotogrammi, l'altra li decodifica.
+            // Il canale tiene solo l'ultimo: se la decodifica è indietro i vecchi si scartano.
+            val frames = Channel<ByteArray>(Channel.CONFLATED)
+            val decoder = launch(Dispatchers.Default) { decodeFrames(frames) }
             try {
                 cam.startLiveView()
-                delay(400)
-                var misses = 0
+                var lastFrame = SystemClock.elapsedRealtime()
                 while (isActive) {
                     val jpg = cam.liveViewFrame()
-                    val bmp = jpg?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-                    if (bmp != null) {
-                        misses = 0
-                        val ib = bmp.asImageBitmap()
-                        withContext(Dispatchers.Main) { liveFrame = ib }
+                    if (jpg != null && jpg.size > 100) {
+                        lastFrame = SystemClock.elapsedRealtime()
+                        frames.trySend(jpg)
                     } else {
-                        misses++
-                        if (misses > 150) throw IOException("nessun fotogramma ricevuto")
-                        delay(100)
+                        if (SystemClock.elapsedRealtime() - lastFrame > 15_000) throw IOException("nessun fotogramma ricevuto")
+                        // fotogramma non ancora pronto: si riprova quasi subito
+                        delay(15)
                     }
                 }
             } catch (e: CancellationException) {
@@ -429,7 +434,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     liveOn = false
                     liveFrame = null
                 }
+            } finally {
+                frames.close()
+                decoder.cancel()
             }
+        }
+    }
+
+    /** Decodifica riusando tre bitmap a turno (una mostrata, una in arrivo, una libera): niente spazzatura a ogni fotogramma. */
+    private suspend fun decodeFrames(frames: Channel<ByteArray>) {
+        val pool = arrayOfNulls<Bitmap>(3)
+        var turn = 0
+        for (jpg in frames) {
+            val opts = BitmapFactory.Options().apply {
+                inMutable = true
+                inBitmap = pool[turn]
+            }
+            val bmp = try {
+                BitmapFactory.decodeByteArray(jpg, 0, jpg.size, opts)
+            } catch (e: IllegalArgumentException) {
+                // dimensioni cambiate (es. zoom): nuova bitmap
+                opts.inBitmap = null
+                BitmapFactory.decodeByteArray(jpg, 0, jpg.size, opts)
+            } ?: continue
+            pool[turn] = bmp
+            turn = (turn + 1) % pool.size
+            val ib = bmp.asImageBitmap()
+            withContext(Dispatchers.Main) { if (liveOn) liveFrame = ib }
         }
     }
 
@@ -567,8 +598,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- galleria
 
+    private var filesLoaded = false
+
+    /** Legge la scheda la prima volta che si apre la galleria. */
+    fun ensureFilesLoaded() {
+        if (!filesLoaded && camera != null) refreshFiles()
+    }
+
     fun refreshFiles() {
         val cam = camera ?: return
+        filesLoaded = true
         galleryStatus = "Lettura della scheda…"
         filesJob?.cancel()
         filesJob = viewModelScope.launch {
