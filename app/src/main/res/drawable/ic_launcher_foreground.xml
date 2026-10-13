@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Corpo macchina stilizzato con obiettivo e onde Wi-Fi -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#E8EAED"
+        android:pathData="M32,44h10l4,-6h16l4,6h10a4,4 0,0 1,4 4v24a4,4 0,0 1,-4 4H32a4,4 0,0 1,-4 -4V48a4,4 0,0 1,4 -4z" />
+    <path
+        android:fillColor="#1B1E24"
+        android:pathData="M54,60m-11,0a11,11 0,1 1,22 0a11,11 0,1 1,-22 0" />
+    <path
+        android:fillColor="#D62828"
+        android:pathData="M54,60m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+    <path
+        android:strokeColor="#D62828"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M70,34a8,8 0,0 1,8 8M70,28a14,14 0,0 1,14 14" />
+</vector>
