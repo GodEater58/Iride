@@ -156,7 +156,9 @@ class OlympusDriver(
 
     override fun capture(autofocus: Boolean): Shot = synchronized(lock) {
         try {
-            if (knownNames == null) knownNames = runCatching { listFiles { _, _ -> }.map { it.name }.toSet() }.getOrNull()
+            // l'elenco di riferimento si legge solo senza live view (serve il modo play):
+            // con il live view acceso risulterebbe vuoto e tutta la scheda sembrerebbe nuova
+            if (knownNames == null && !liveOn) knownNames = runCatching { listFiles { _, _ -> }.map { it.name }.toSet() }.getOrNull()
             if ("shutter" in commands && !liveOn) {
                 switchMode("shutter")
                 Thread.sleep(300)

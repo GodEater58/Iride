@@ -3,6 +3,7 @@ package it.goletto.iride.ptp
 import it.goletto.iride.camera.standardWbLabel
 import it.goletto.iride.camera.formatEv
 import it.goletto.iride.camera.Brand
+import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.Capabilities
 import it.goletto.iride.camera.ExpoKey
@@ -54,6 +55,7 @@ class NikonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
     override fun initialize() {
         super.initialize()
         caps = Capabilities(
+            liveViewQuality = LV_SIZE in info.properties,
             autofocusButton = NikonOp.AF_DRIVE in ops,
             liveView = NikonOp.START_LIVE_VIEW in ops,
             bulb = NikonOp.TERMINATE_CAPTURE in ops && NikonOp.CAPTURE_REC_IN_MEDIA in ops,
@@ -147,7 +149,22 @@ class NikonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
         return shotFrom(r.code)
     }
 
+    private var quality = LvQuality.BALANCED
+
+    override fun setLiveViewQuality(q: LvQuality) {
+        quality = q
+    }
+
     override fun startLiveView() {
+        if (LV_SIZE in info.properties) {
+            val v = when (quality) {
+                LvQuality.FLUID -> 1L
+                LvQuality.BALANCED -> 2L
+                LvQuality.DETAIL -> 3L
+            }
+            val d = getPropDesc(LV_SIZE)
+            if (d != null && d.writable && (d.values.isEmpty() || v in d.values)) setPropValue(LV_SIZE, d.type, v)
+        }
         check(ptp.transaction(NikonOp.START_LIVE_VIEW), "Avvio live view")
         waitReady(3000)
     }
@@ -169,5 +186,10 @@ class NikonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
         val ok = setPropValue(prop, d.type, code)
         if (ok) refreshExposure()
         return ok
+    }
+
+    companion object {
+        /** Dimensione del live view sui Nikon recenti (libgphoto2: PTP_DPC_NIKON_LiveViewImageSize). */
+        private const val LV_SIZE = 0xD1AC
     }
 }

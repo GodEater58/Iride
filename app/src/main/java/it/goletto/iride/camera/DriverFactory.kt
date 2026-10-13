@@ -48,7 +48,9 @@ object DriverFactory {
         Brand.SONY -> listOf(PtpIp.PORT, 8080, 10000)
         Brand.FUJIFILM -> listOf(FujiDriver.CMD_PORT)
         Brand.OLYMPUS, Brand.PANASONIC -> listOf(HTTP)
-        Brand.AUTO -> listOf(PtpIp.PORT, FujiDriver.CMD_PORT, 8080, 10000, HTTP)
+        // la porta Fuji va prima: una Fujifilm può aprire anche la 15740 standard e, collegandosi
+        // lì per prima, resterebbe occupata come la 6D
+        Brand.AUTO -> listOf(FujiDriver.CMD_PORT, PtpIp.PORT, 8080, 10000, HTTP)
     }
 
     /**
