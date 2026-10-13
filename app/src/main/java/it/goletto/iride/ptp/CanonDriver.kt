@@ -1,5 +1,6 @@
 package it.goletto.iride.ptp
 
+import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.camera.Brand
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.Capabilities
@@ -13,7 +14,14 @@ import java.util.concurrent.ConcurrentHashMap
 class CanonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log) {
 
     override val brand = Brand.CANON
-    override val caps = Capabilities()
+    override var caps = Capabilities()
+        private set
+
+    private var quality = LvQuality.BALANCED
+
+    override fun setLiveViewQuality(q: LvQuality) {
+        quality = q
+    }
 
     private val props = ConcurrentHashMap<Int, Int>()
     private val allowed = ConcurrentHashMap<Int, IntArray>()
@@ -34,6 +42,10 @@ class CanonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
         if (PtpOp.CANON_SET_EVENT_MODE in ops) check(ptp.transaction(PtpOp.CANON_SET_EVENT_MODE, intArrayOf(1)), "SetEventMode")
         // La prima GetEvent restituisce lo stato completo (proprietà e valori ammessi)
         repeat(2) { runCatching { poll() } }
+        caps = Capabilities(
+            autofocusButton = PtpOp.CANON_DO_AF in ops || PtpOp.CANON_RELEASE_ON in ops,
+            liveViewQuality = true,
+        )
     }
 
     private fun label(prop: Int, v: Int): String = when (prop) {
@@ -141,9 +153,49 @@ class CanonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
         return check(ptp.transaction(PtpOp.CANON_SET_PROP_EX, dataOut = data), "Proprietà ${hex(prop)}")
     }
 
+    /**
+     * Uscita del live view: è una maschera di bit (1 = schermo, 2 = PC grande,
+     * 4 = smartphone medio, 8 = smartphone piccolo), come in libgphoto2. Le dimensioni
+     * piccole pesano molto meno via Wi-Fi.
+     */
+    private fun outputFor(q: LvQuality): Int {
+        val wanted = when (q) {
+            LvQuality.FLUID -> listOf(8, 4, 2)
+            LvQuality.BALANCED -> listOf(4, 8, 2)
+            LvQuality.DETAIL -> listOf(2, 4, 8)
+        }
+        val list = allowed[CanonProp.EVF_OUTPUT_DEVICE]
+        for (bit in wanted) {
+            if (list == null) return wanted.first().let { if (it == 8 || it == 4) 4 else 2 }
+            list.firstOrNull { (it and 0xE) == bit }?.let { return it }
+        }
+        return 2
+    }
+
     override fun startLiveView() {
         setPropEx(CanonProp.EVF_MODE, 1)
-        setPropEx(CanonProp.EVF_OUTPUT_DEVICE, 2)
+        val out = outputFor(quality)
+        if (!setPropEx(CanonProp.EVF_OUTPUT_DEVICE, out).ok && out != 2) {
+            // dimensione non accettata: si torna a quella standard per PC
+            setPropEx(CanonProp.EVF_OUTPUT_DEVICE, 2)
+        }
+        log("Live view: uscita ${hex(out)} (${quality.label})")
+    }
+
+    override fun autofocus(): Shot {
+        return if (PtpOp.CANON_DO_AF in ops) {
+            val r = check(ptp.transaction(PtpOp.CANON_DO_AF), "Messa a fuoco")
+            // il tempo per mettere a fuoco (in live view la 6D usa il contrasto, più lento)
+            Thread.sleep(1800)
+            if (PtpOp.CANON_AF_CANCEL in ops) ptp.transaction(PtpOp.CANON_AF_CANCEL)
+            shotFrom(r.code)
+        } else {
+            // mezza pressione del pulsante di scatto
+            val r = check(ptp.transaction(PtpOp.CANON_RELEASE_ON, intArrayOf(1, 0)), "Messa a fuoco")
+            Thread.sleep(1500)
+            ptp.transaction(PtpOp.CANON_RELEASE_OFF, intArrayOf(1))
+            shotFrom(r.code)
+        }
     }
 
     override fun stopLiveView() {

@@ -57,6 +57,7 @@ class PtpIpClient(
     fun connect(host: String, guid: ByteArray, friendlyName: String, preconnected: Socket? = null) {
         val s = preconnected ?: socketFactory.createSocket().also {
             it.tcpNoDelay = true
+            it.receiveBufferSize = 1 shl 20
             it.connect(InetSocketAddress(host, PtpIp.PORT), 8000)
         }
         // La fotocamera può chiedere conferma sul display: attesa lunga

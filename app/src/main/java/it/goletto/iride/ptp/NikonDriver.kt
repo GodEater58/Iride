@@ -54,6 +54,7 @@ class NikonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
     override fun initialize() {
         super.initialize()
         caps = Capabilities(
+            autofocusButton = NikonOp.AF_DRIVE in ops,
             liveView = NikonOp.START_LIVE_VIEW in ops,
             bulb = NikonOp.TERMINATE_CAPTURE in ops && NikonOp.CAPTURE_REC_IN_MEDIA in ops,
         )
@@ -138,6 +139,12 @@ class NikonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
         // rimette il tempo di prima, altrimenti lo scatto normale successivo resterebbe in posa B
         timeBeforeBulb?.let { setPropValue(PtpProp.EXPOSURE_TIME, PtpType.UINT32, it) }
         timeBeforeBulb = null
+    }
+
+    override fun autofocus(): Shot {
+        val r = check(ptp.transaction(NikonOp.AF_DRIVE), "Messa a fuoco")
+        if (r.ok) waitReady(5000)
+        return shotFrom(r.code)
     }
 
     override fun startLiveView() {

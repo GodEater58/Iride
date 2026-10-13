@@ -55,9 +55,20 @@ data class Capabilities(
     val autofocusToggle: Boolean = true,
     /** Nota mostrata in galleria quando la scheda non è consultabile. */
     val galleryNote: String = "",
+    /** Tasto «Metti a fuoco» (autofocus senza scattare). */
+    val autofocusButton: Boolean = false,
+    /** La fotocamera può inviare il live view in dimensioni diverse. */
+    val liveViewQuality: Boolean = false,
 )
 
 enum class Shot { OK, BUSY, FAILED }
+
+/** Dimensione del live view: più piccolo = più fluido via Wi-Fi. */
+enum class LvQuality(val label: String) {
+    FLUID("Fluido"),
+    BALANCED("Bilanciato"),
+    DETAIL("Dettaglio"),
+}
 
 private val RAW_EXT = setOf("CR2", "CR3", "CRW", "NEF", "NRW", "ARW", "SRF", "SR2", "RAF", "ORF", "ORI", "RW2", "RWL", "DNG", "PEF", "IIQ", "3FR", "X3F")
 
@@ -112,6 +123,12 @@ interface CameraDriver : Closeable {
     fun download(file: CamFile, out: OutputStream, progress: (Long, Long) -> Unit)
 
     fun setExposure(key: ExpoKey, code: Long): Boolean
+
+    /** Mette a fuoco senza scattare. */
+    fun autofocus(): Shot = Shot.FAILED
+
+    /** Dimensione del live view, applicata al prossimo avvio. */
+    fun setLiveViewQuality(q: LvQuality) = Unit
 }
 
 /** Utilità comuni per estrarre un JPEG da un blocco di dati (live view di molte marche). */

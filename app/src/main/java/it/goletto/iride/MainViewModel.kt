@@ -33,6 +33,7 @@ import it.goletto.iride.camera.Capabilities
 import it.goletto.iride.camera.DriverFactory
 import it.goletto.iride.camera.ExpoKey
 import it.goletto.iride.camera.ExposureState
+import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.camera.Shot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -127,6 +128,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var liveOn by mutableStateOf(false)
         private set
     var autofocus by mutableStateOf(true)
+    var focusing by mutableStateOf(false)
+        private set
+    /** Esito dell'ultima messa a fuoco, per un breve segnale sul tasto (null = nessuno). */
+    var focusResult by mutableStateOf<Boolean?>(null)
+        private set
+    var lvQuality by mutableStateOf(
+        runCatching { LvQuality.valueOf(prefs.getString("lvq", null) ?: "BALANCED") }.getOrDefault(LvQuality.BALANCED)
+    )
+        private set
     var shotTick by mutableIntStateOf(0)
         private set
     var exposure by mutableStateOf(ExposureState())
@@ -249,6 +259,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 camera = cam
                 connectedBrand = cam.brand
                 caps = cam.caps
+                cam.setLiveViewQuality(lvQuality)
                 if (!cam.caps.autofocusToggle) autofocus = true
                 model = cam.model.ifEmpty { "Fotocamera" }
                 cameraHost = target
@@ -295,9 +306,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val c = camera
         camera = null
         if (c != null) thread(isDaemon = true) { runCatching { c.close() } }
+        net.lowLatency(false)
         net.release()
         connected = false
         liveOn = false
+        focusing = false
         liveFrame = null
         intervalRunning = false
         seqPhase = SeqPhase.IDLE
@@ -335,9 +348,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun startPolling() {
         pollJob?.cancel()
         pollJob = viewModelScope.launch(Dispatchers.IO) {
+            var tick = 0
             while (isActive) {
                 delay(1200)
                 val cam = camera ?: break
+                // durante il live view lo stato si legge meno spesso: il canale resta ai fotogrammi
+                tick++
+                if (liveOn && !intervalRunning && tick % 3 != 0) continue
                 try {
                     val added = cam.poll()
                     syncExposure(cam)
@@ -397,16 +414,56 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun focus() {
+        val cam = camera ?: return
+        if (focusing) return
+        focusing = true
+        focusResult = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = try {
+                cam.autofocus() == Shot.OK
+            } catch (e: Exception) {
+                log("Messa a fuoco fallita: ${e.message}")
+                false
+            }
+            log(if (ok) "Messa a fuoco eseguita" else "Messa a fuoco non riuscita (soggetto troppo scuro o senza contrasto?)")
+            withContext(Dispatchers.Main) {
+                focusing = false
+                focusResult = ok
+            }
+            delay(1500)
+            withContext(Dispatchers.Main) { focusResult = null }
+        }
+    }
+
+    /** Cambia la dimensione del live view; se è acceso lo riavvia con la nuova dimensione. */
+    fun changeLvQuality(q: LvQuality) {
+        if (q == lvQuality) return
+        lvQuality = q
+        prefs.edit().putString("lvq", q.name).apply()
+        val cam = camera ?: return
+        cam.setLiveViewQuality(q)
+        if (liveOn) {
+            toggleLive()
+            viewModelScope.launch {
+                delay(600)
+                if (!liveOn && camera === cam) toggleLive()
+            }
+        }
+    }
+
     fun toggleLive() {
         val cam = camera ?: return
         if (liveOn) {
             liveOn = false
             liveJob?.cancel()
             liveFrame = null
+            net.lowLatency(false)
             viewModelScope.launch(Dispatchers.IO) { runCatching { cam.stopLiveView() } }
             return
         }
         liveOn = true
+        net.lowLatency(true)
         liveJob = viewModelScope.launch(Dispatchers.IO) {
             // due fasi in parallelo: una scarica i fotogrammi, l'altra li decodifica.
             // Il canale tiene solo l'ultimo: se la decodifica è indietro i vecchi si scartano.
@@ -433,6 +490,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.Main) {
                     liveOn = false
                     liveFrame = null
+                    net.lowLatency(false)
                 }
             } finally {
                 frames.close()

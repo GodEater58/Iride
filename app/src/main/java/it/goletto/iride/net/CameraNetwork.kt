@@ -88,6 +88,27 @@ class CameraNetwork(context: Context) {
         }
     }
 
+    private var wifiLock: WifiManager.WifiLock? = null
+
+    /**
+     * Durante il live view chiede ad Android il Wi-Fi a bassa latenza (niente risparmio
+     * energetico tra un pacchetto e l'altro). Rilasciato appena il live view si ferma.
+     */
+    fun lowLatency(on: Boolean) {
+        if (on) {
+            if (wifiLock?.isHeld == true) return
+            @Suppress("DEPRECATION")
+            val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            wifiLock = wm.createWifiLock(mode, "iride-liveview").apply {
+                setReferenceCounted(false)
+                runCatching { acquire() }
+            }
+        } else {
+            runCatching { wifiLock?.release() }
+            wifiLock = null
+        }
+    }
+
     fun socketFactory(): SocketFactory = network?.socketFactory ?: SocketFactory.getDefault()
 
     private fun localAddresses(): List<Inet4Address> {
@@ -150,6 +171,8 @@ class CameraNetwork(context: Context) {
         val s = factory.createSocket()
         return try {
             s.tcpNoDelay = true
+            // buffer di ricezione ampio, impostato prima di collegarsi: fotogrammi del live view più rapidi
+            s.receiveBufferSize = 1 shl 20
             s.connect(InetSocketAddress(host, port), timeoutMs)
             s
         } catch (e: Exception) {

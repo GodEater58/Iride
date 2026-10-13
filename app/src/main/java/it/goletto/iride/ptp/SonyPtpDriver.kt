@@ -27,6 +27,7 @@ class SonyPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, lo
     override val brand = Brand.SONY
     override val caps = Capabilities(
         cardBrowsing = false,
+        autofocusButton = true,
         galleryNote = "Con le Sony in modalità PC remoto le foto arrivano sul telefono appena scattate. Per tenere una copia anche sulla scheda, imposta sulla fotocamera la destinazione di salvataggio «PC + fotocamera».",
     )
 
@@ -178,6 +179,14 @@ class SonyPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, lo
         control(SONY_SHUTTER_HALF, 1)
         val code = if (a != PtpResp.OK) a else b
         if (code != PtpResp.OK) log("Scatto: risposta ${hex(code)}")
+        return shotFrom(code)
+    }
+
+    override fun autofocus(): Shot {
+        // mezza pressione: la fotocamera mette a fuoco, poi si rilascia
+        val code = control(SONY_SHUTTER_HALF, 2)
+        Thread.sleep(1200)
+        control(SONY_SHUTTER_HALF, 1)
         return shotFrom(code)
     }
 

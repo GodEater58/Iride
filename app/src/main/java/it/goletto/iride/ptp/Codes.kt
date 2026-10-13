@@ -44,11 +44,14 @@ object PtpOp {
     const val CANON_RELEASE_ON = 0x9128
     const val CANON_RELEASE_OFF = 0x9129
     const val CANON_GET_VIEWFINDER = 0x9153
+    const val CANON_DO_AF = 0x9154
+    const val CANON_AF_CANCEL = 0x9160
 }
 
 /** Estensioni Nikon (codici da libgphoto2, camlibs/ptp2/ptp.h). */
 object NikonOp {
     const val GET_EVENT = 0x90C7
+    const val AF_DRIVE = 0x90C1
     const val DEVICE_READY = 0x90C8
     const val CAPTURE_SDRAM = 0x90C0
     const val START_LIVE_VIEW = 0x9201
@@ -92,7 +95,8 @@ object PtpResp {
 
 object CanonProp {
     const val EVF_OUTPUT_DEVICE = 0xD1B0
-    const val EVF_MODE = 0xD1B3
+    // 0xD1B1 = modo EVF (acceso/spento); 0xD1B3 è la nitidezza, da non toccare
+    const val EVF_MODE = 0xD1B1
 }
 
 object CanonEvent {

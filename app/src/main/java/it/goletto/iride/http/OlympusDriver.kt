@@ -1,5 +1,6 @@
 package it.goletto.iride.http
 
+import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.camera.Brand
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.CameraDriver
@@ -79,7 +80,7 @@ class OlympusDriver(
         val info = get("get_caminfo")
         tag(info, "model")?.let { model = "Olympus $it" }
         log("Fotocamera: $model")
-        caps = caps.copy(liveView = "startliveview" in commands)
+        caps = caps.copy(liveView = "startliveview" in commands, liveViewQuality = true)
         synchronized(lock) {
             switchMode("rec")
             refreshExposure()
@@ -174,6 +175,12 @@ class OlympusDriver(
         }
     }
 
+    private var quality = LvQuality.BALANCED
+
+    override fun setLiveViewQuality(q: LvQuality) {
+        quality = q
+    }
+
     override fun bulbStart(): Shot = Shot.FAILED
     override fun bulbEnd() = Unit
 
@@ -195,7 +202,12 @@ class OlympusDriver(
         val sock = net.udp(port)
         sock.soTimeout = 2000
         udp = sock
-        switchMode("rec", mapOf("lvqty" to "0640x0480"))
+        val lvqty = when (quality) {
+            LvQuality.FLUID -> "0320x0240"
+            LvQuality.BALANCED -> "0640x0480"
+            LvQuality.DETAIL -> "0800x0600"
+        }
+        switchMode("rec", mapOf("lvqty" to lvqty))
         get("exec_takemisc", mapOf("com" to "startliveview", "port" to port.toString()))
         liveOn = true
         thread(isDaemon = true, name = "olympus-liveview") { receive(sock) }

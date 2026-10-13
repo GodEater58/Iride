@@ -84,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import it.goletto.iride.MainViewModel
 import it.goletto.iride.SeqPhase
 import it.goletto.iride.camera.ExpoKey
+import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.ui.theme.LocalIride
 import it.goletto.iride.ui.theme.readout
 import kotlinx.coroutines.launch
@@ -220,6 +221,22 @@ private fun Viewfinder(vm: MainViewModel) {
                     .padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
+        if (frame != null && vm.caps.autofocusButton) {
+            Row(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(enabled = !vm.focusing, role = Role.Button, onClick = vm::focus)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(IrideIcons.Focus, null, tint = if (vm.focusing) p.lcd else Color.White, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (vm.focusing) "Fuoco…" else "AF", style = MaterialTheme.typography.labelMedium, color = Color.White)
+            }
+        }
         if (frame != null) {
             Box(
                 Modifier
@@ -240,9 +257,41 @@ private fun Viewfinder(vm: MainViewModel) {
             }
         }
     }
+    if (vm.caps.liveViewQuality) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Live view", style = MaterialTheme.typography.labelMedium, color = p.muted, modifier = Modifier.padding(end = 10.dp))
+            Row(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(p.raised)
+                    .padding(3.dp),
+            ) {
+                LvQuality.entries.forEach { q ->
+                    val sel = q == vm.lvQuality
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (sel) p.lcd else Color.Transparent)
+                            .clickable(role = Role.RadioButton) { vm.changeLvQuality(q) }
+                            .padding(vertical = 7.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(q.label, style = MaterialTheme.typography.labelMedium, color = if (sel) p.onLcd else p.text)
+                    }
+                }
+            }
+        }
+    }
     if (frame != null) {
         Text(
-            "Pizzica per ingrandire, doppio tocco per zoom 4× sul punto",
+            "Pizzica per ingrandire, doppio tocco per zoom 4× sul punto. «Fluido» per inquadrare, «Dettaglio» per la messa a fuoco manuale.",
             style = MaterialTheme.typography.labelSmall,
             color = p.muted,
             modifier = Modifier.padding(top = 6.dp),
@@ -420,7 +469,11 @@ private fun ShutterRow(vm: MainViewModel) {
         ) {
             RoundToggle(IrideIcons.LiveView, "Live view", vm.liveOn, vm::toggleLive, enabled = vm.caps.liveView)
             ShutterButton(vm)
-            RoundToggle(IrideIcons.Focus, "Autofocus", vm.autofocus, { vm.autofocus = !vm.autofocus }, enabled = !vm.intervalRunning && vm.caps.autofocusToggle)
+            FocusButton(vm)
+        }
+        if (vm.caps.autofocusToggle) {
+            Spacer(Modifier.height(12.dp))
+            SmallSwitch("Autofocus allo scatto", vm.autofocus, enabled = !vm.intervalRunning) { vm.autofocus = !vm.autofocus }
         }
         AnimatedVisibility(vm.intervalRunning, enter = fadeIn(), exit = fadeOut()) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 14.dp)) {
@@ -729,5 +782,74 @@ private fun ChoiceList(items: List<Pair<Long, String>>, current: Long?, onSelect
                 if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
+    }
+}
+
+
+/** Tasto «Metti a fuoco»: anello che gira durante la messa a fuoco, verde o rosso all'esito. */
+@Composable
+private fun FocusButton(vm: MainViewModel) {
+    val p = LocalIride.current
+    val enabled = vm.caps.autofocusButton && !vm.intervalRunning
+    val src = remember { MutableInteractionSource() }
+    val spinT = rememberInfiniteTransition(label = "af")
+    val spin by spinT.animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "afspin")
+    val ring by animateColorAsState(
+        when (vm.focusResult) {
+            true -> p.ok
+            false -> p.exposure
+            null -> p.lcd
+        },
+        label = "afring",
+    )
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .pressScale(src)
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(p.raised)
+                .border(1.dp, p.groove, CircleShape)
+                .clickable(src, null, enabled = enabled && !vm.focusing, role = Role.Button, onClick = vm::focus),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
+                val st = 2.5.dp.toPx()
+                val tl = Offset(st, st)
+                val sz = Size(size.width - st * 2, size.height - st * 2)
+                when {
+                    vm.focusing -> drawArc(ring, spin, 90f, false, tl, sz, style = Stroke(st, cap = StrokeCap.Round))
+                    vm.focusResult != null -> drawArc(ring, 0f, 360f, false, tl, sz, style = Stroke(st))
+                }
+            }
+            Icon(IrideIcons.Focus, "Metti a fuoco", tint = if (enabled) p.text else p.groove, modifier = Modifier.size(23.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("Metti a fuoco", style = MaterialTheme.typography.labelSmall, color = if (vm.focusing) p.lcd else p.muted)
+    }
+}
+
+@Composable
+private fun SmallSwitch(label: String, on: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val p = LocalIride.current
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, role = Role.Switch, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(width = 34.dp, height = 20.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (on) p.lcd else p.groove)
+                .padding(2.dp),
+            contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            Box(Modifier.size(16.dp).clip(CircleShape).background(if (on) p.onLcd else p.muted))
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = if (enabled) p.text else p.muted)
     }
 }

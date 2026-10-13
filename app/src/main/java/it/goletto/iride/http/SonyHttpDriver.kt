@@ -1,5 +1,6 @@
 package it.goletto.iride.http
 
+import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.camera.Brand
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.CameraDriver
@@ -88,6 +89,8 @@ class SonyHttpDriver(
             log("API remota Sony ${info.optString(1)}")
         }
         caps = caps.copy(
+            autofocusButton = "actHalfPressShutter" in apis,
+            liveViewQuality = "startLiveviewWithSize" in apis,
             liveView = "startLiveview" in apis,
             bulb = "startBulbShooting" in apis,
             exposureControl = apis.any { it.startsWith("set") && (it.contains("ShutterSpeed") || it.contains("FNumber") || it.contains("IsoSpeedRate") || it.contains("ExposureCompensation") || it.contains("WhiteBalance")) },
@@ -248,8 +251,28 @@ class SonyHttpDriver(
     @Volatile
     private var liveConn: HttpURLConnection? = null
 
+    private var quality = LvQuality.BALANCED
+
+    override fun setLiveViewQuality(q: LvQuality) {
+        quality = q
+    }
+
+    override fun autofocus(): Shot = try {
+        call("actHalfPressShutter", timeoutMs = 15000)
+        Thread.sleep(800)
+        runCatching { call("cancelHalfPressShutter") }
+        Shot.OK
+    } catch (e: Exception) {
+        shotFrom(e)
+    }
+
     override fun startLiveView() {
-        val url = call("startLiveview").getString(0)
+        // "M" circa 640 px, "L" circa 1024 px (API remota Sony)
+        val url = if ("startLiveviewWithSize" in apis) {
+            call("startLiveviewWithSize", JSONArray().put(if (quality == LvQuality.DETAIL) "L" else "M")).getString(0)
+        } else {
+            call("startLiveview").getString(0)
+        }
         val c = net.open(url, 10000)
         liveConn = c
         thread(isDaemon = true, name = "sony-liveview") {
