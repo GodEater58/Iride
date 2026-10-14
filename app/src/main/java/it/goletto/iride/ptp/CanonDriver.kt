@@ -1,6 +1,8 @@
 package it.goletto.iride.ptp
 
 import it.goletto.iride.camera.LvQuality
+import it.goletto.iride.camera.LensInfo
+import it.goletto.iride.camera.SensorInfo
 import it.goletto.iride.camera.Brand
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.Capabilities
@@ -45,6 +47,8 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
         val (w, h) = sensorSize(info.model)
         coordW = w
         coordH = h
+        sensorMm = sensorWidthMm(info.model)
+        if (lensName.isNotEmpty()) log("Obiettivo: $lensName")
         caps = Capabilities(
             autofocusButton = PtpOp.CANON_DO_AF in ops || PtpOp.CANON_RELEASE_ON in ops,
             liveViewQuality = true,
@@ -63,6 +67,14 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
      */
     private var coordW = 6000
     private var coordH = 4000
+    private var sensorMm = 22.3f
+
+    @Volatile
+    private var lensName = ""
+
+    override fun lens(): LensInfo? = lensName.takeIf { it.isNotEmpty() }?.let { LensInfo.fromName(it) }
+
+    override fun sensor(): SensorInfo = SensorInfo(sensorMm, coordW)
     private var zoom = 1
     private var zcx = 0.5f
     private var zcy = 0.5f
@@ -86,6 +98,17 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
             "80D" in m || "77D" in m || "800D" in m || "200D" in m || "1300D" in m.replace(" ", "") || "750D" in m || "760D" in m -> 6000 to 4000
             "70D" in m || "60D" in m || "700D" in m || "100D" in m || "1200D" in m -> 5184 to 3456
             else -> 6000 to 4000
+        }
+    }
+
+    /** Larghezza del sensore: pieno formato (6D 35,8 mm) o APS-C Canon (22,3 mm). */
+    private fun sensorWidthMm(model: String): Float {
+        val m = model.uppercase()
+        return when {
+            "6D MARK II" in m -> 35.9f
+            "6D" in m -> 35.8f
+            "5D" in m || "1D" in m || Regex("""EOS R\d?\b|EOS RP""").containsMatchIn(m) -> 36.0f
+            else -> 22.3f
         }
     }
 
@@ -120,7 +143,7 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
         if (factor > 1 && zoom == 1) setPropEx(CanonProp.EVF_OUTPUT_DEVICE, 2)
         val ok = check(ptp.transaction(PtpOp.CANON_ZOOM, intArrayOf(factor)), "Zoom ${factor}×").ok
         if (ok) {
-            if (factor == 1 && zoom > 1) setPropEx(CanonProp.EVF_OUTPUT_DEVICE, outputFor(quality))
+            if (factor == 1 && zoom > 1) setPropEx(CanonProp.EVF_OUTPUT_DEVICE, currentOutput)
             zoom = factor
         }
         return ok
@@ -180,7 +203,12 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
             if (size < 8 || type == 0 || off + size > d.size) break
             when (type) {
                 CanonEvent.OBJECT_ADDED_EX -> if (size >= 12) added.add(le32(d, off + 8))
-                CanonEvent.PROP_VALUE_CHANGED -> if (size >= 16) {
+                CanonEvent.PROP_VALUE_CHANGED -> if (size >= 16 && le32(d, off + 8) == LENS_NAME) {
+                    // nome dell'obiettivo: testo ASCII terminato da zero (libgphoto2)
+                    var e = off + 12
+                    while (e < off + size && d[e] != 0.toByte()) e++
+                    lensName = String(d, off + 12, e - off - 12, Charsets.US_ASCII).trim()
+                } else if (size >= 16) {
                     val prop = le32(d, off + 8)
                     val value = le32(d, off + 12)
                     if (props[prop] != value) {
@@ -250,9 +278,11 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
     /**
      * Uscita del live view: è una maschera di bit (1 = schermo, 2 = PC grande,
      * 4 = smartphone medio, 8 = smartphone piccolo), come in libgphoto2. Le dimensioni
-     * piccole pesano molto meno via Wi-Fi.
+     * piccole pesano molto meno via Wi-Fi, ma non tutte le fotocamere le inviano davvero
+     * (sulla 6D col Wi-Fi della fotocamera l'uscita 0x4 non dava fotogrammi): se un'uscita
+     * non produce fotogrammi entro pochi secondi si passa alla successiva e la si ricorda.
      */
-    private fun outputFor(q: LvQuality): Int {
+    private fun candidatesFor(q: LvQuality): List<Int> {
         val wanted = when {
             // col cavo USB la banda basta per l'uscita grande, tranne in «Fluido»
             ptp.wired && q != LvQuality.FLUID -> listOf(2, 4, 8)
@@ -261,22 +291,50 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
             else -> listOf(2, 4, 8)
         }
         val list = allowed[CanonProp.EVF_OUTPUT_DEVICE]
+        val out = ArrayList<Int>()
         for (bit in wanted) {
-            if (list == null) return wanted.first().let { if (it == 8 || it == 4) 4 else 2 }
-            list.firstOrNull { (it and 0xE) == bit }?.let { return it }
+            if (list == null) out.add(bit) else list.filter { (it and 0xE) == bit }.forEach { out.add(it) }
         }
-        return 2
+        out.add(2)
+        return out.distinct().filter { it !in badOutputs }.ifEmpty { listOf(2) }
+    }
+
+    private val badOutputs = HashSet<Int>()
+    private var lvCandidates: List<Int> = listOf(2)
+    private var lvTry = 0
+    private var lvStartAt = 0L
+    private var lvGotFrame = false
+    private var lvLastCode = 0
+
+    /** Uscita in uso (serve per tornarci dopo lo zoom). */
+    private val currentOutput: Int get() = lvCandidates.getOrElse(lvTry) { 2 }
+
+    private fun applyOutput() {
+        while (lvTry < lvCandidates.size) {
+            val out = lvCandidates[lvTry]
+            if (setPropEx(CanonProp.EVF_OUTPUT_DEVICE, out).ok) {
+                log("Live view: uscita ${hex(out)} (${quality.label})")
+                break
+            }
+            badOutputs.add(out)
+            lvTry++
+        }
+        if (lvTry >= lvCandidates.size) {
+            lvCandidates = listOf(2)
+            lvTry = 0
+            setPropEx(CanonProp.EVF_OUTPUT_DEVICE, 2)
+        }
+        lvStartAt = System.currentTimeMillis()
+        lvGotFrame = false
     }
 
     override fun startLiveView() {
         zoom = 1
         setPropEx(CanonProp.EVF_MODE, 1)
-        val out = outputFor(quality)
-        if (!setPropEx(CanonProp.EVF_OUTPUT_DEVICE, out).ok && out != 2) {
-            // dimensione non accettata: si torna a quella standard per PC
-            setPropEx(CanonProp.EVF_OUTPUT_DEVICE, 2)
-        }
-        log("Live view: uscita ${hex(out)} (${quality.label})")
+        allowed[CanonProp.EVF_OUTPUT_DEVICE]?.let { a -> log("Uscite live view ammesse: " + a.joinToString { hex(it) }) }
+        lvCandidates = candidatesFor(quality)
+        lvTry = 0
+        applyOutput()
     }
 
     override fun autofocus(): Shot {
@@ -303,8 +361,24 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
 
     override fun liveViewFrame(): ByteArray? {
         val r = ptp.transaction(PtpOp.CANON_GET_VIEWFINDER, intArrayOf(0x00100000, 0, 0))
-        if (!r.ok) return null
-        val d = r.data
+        lvLastCode = r.code
+        val frame = if (r.ok) parseViewfinder(r.data) else null
+        if (frame != null) {
+            lvGotFrame = true
+            return frame
+        }
+        // nessun fotogramma da questa uscita: dopo 3 s si prova la successiva
+        if (!lvGotFrame && zoom == 1 && lvTry < lvCandidates.size - 1 && System.currentTimeMillis() - lvStartAt > 3000) {
+            val bad = currentOutput
+            badOutputs.add(bad)
+            lvTry++
+            log("Uscita ${hex(bad)} senza fotogrammi (risposta ${hex(lvLastCode)}): provo ${hex(currentOutput)}")
+            applyOutput()
+        }
+        return null
+    }
+
+    private fun parseViewfinder(d: ByteArray): ByteArray? {
         var off = 0
         while (off + 8 <= d.size) {
             val size = le32(d, off)
@@ -314,5 +388,9 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
             off += size
         }
         return it.goletto.iride.camera.extractJpeg(d)
+    }
+
+    private companion object {
+        const val LENS_NAME = 0xD1D8   // PTP_DPC_CANON_EOS_LensName
     }
 }

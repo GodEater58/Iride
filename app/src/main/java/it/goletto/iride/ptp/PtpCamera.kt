@@ -1,5 +1,7 @@
 package it.goletto.iride.ptp
 
+import it.goletto.iride.camera.LensInfo
+
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.CameraDriver
 import it.goletto.iride.camera.ExpoKey
@@ -60,7 +62,18 @@ abstract class PtpCamera(protected val ptp: PtpTransport, protected val log: (St
     protected var info: DeviceInfo = DeviceInfo(0, emptySet(), emptySet(), "", "")
     protected val ops: Set<Int> get() = info.operations
 
-    override val model: String get() = listOf(info.manufacturer.substringBefore(' ').trim(), info.model).filter { it.isNotBlank() }.joinToString(" ").ifEmpty { ptp.cameraName }
+    override val model: String get() {
+        val maker = info.manufacturer.substringBefore(' ').trim()
+        // "Canon EOS 6D" contiene già la marca: niente "Canon Canon EOS 6D"
+        val name = if (maker.isNotEmpty() && !info.model.startsWith(maker, ignoreCase = true)) "$maker ${info.model}" else info.model
+        return name.trim().ifEmpty { ptp.cameraName }
+    }
+
+    /** Obiettivo dalle proprietà PTP standard: focale (0x5008) e diaframma (0x5007), in centesimi. */
+    override fun lens(): LensInfo? {
+        val fl = getPropDesc(0x5008)?.current?.let { it / 100f }?.takeIf { it > 0f } ?: return null
+        return LensInfo("", fl, fl, null, fl)
+    }
 
     @Volatile
     private var expo = ExposureState()

@@ -36,6 +36,9 @@ import it.goletto.iride.camera.ExpoKey
 import it.goletto.iride.camera.ExposureState
 import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.camera.Shot
+import it.goletto.iride.camera.LensInfo
+import it.goletto.iride.camera.SensorInfo
+import it.goletto.iride.camera.SkyAdvisor
 import it.goletto.iride.camera.StarMeasure
 import it.goletto.iride.camera.StarMeter
 import kotlinx.coroutines.CancellationException
@@ -61,10 +64,12 @@ import kotlin.math.roundToInt
 data class LogLine(val time: String, val text: String, val error: Boolean)
 
 private const val MAX_THUMBS = 400
+const val MILKY_WAY = "Via Lattea"
 
 enum class SeqPhase { IDLE, EXPOSING, WAITING, BUSY }
 
-data class Preset(val name: String, val count: Int, val pause: Double, val bulb: Double)
+/** Preset dell'intervallometro; [bulb] null = lascia la posa attuale (i dark devono uguagliare le foto). */
+data class Preset(val name: String, val count: Int, val pause: Double, val bulb: Double?, val note: String)
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -204,10 +209,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     val presets = listOf(
-        Preset("Stelle 30 s", 20, 2.0, 0.0),
-        Preset("Deep sky 2 min", 15, 3.0, 120.0),
-        Preset("Timelapse", 300, 5.0, 0.0),
-        Preset("Dark frame", 20, 2.0, 0.0),
+        Preset(MILKY_WAY, 20, 2.0, 0.0, "Camera fissa su treppiede: tempo dalla regola NPF per avere stelle puntiformi, diaframma tutto aperto, ISO 3200–6400."),
+        Preset("Deep sky (inseguitore)", 15, 3.0, 120.0, "Pose da 2 minuti in posa B: serve una montatura che segue il moto delle stelle."),
+        Preset("Timelapse", 300, 5.0, 0.0, "300 scatti, uno ogni 5 secondi, col tempo impostato sulla fotocamera."),
+        Preset("Dark frame", 20, 2.0, null, "Stessi tempo e ISO delle foto, col tappo sull'obiettivo: servono a togliere il rumore del sensore."),
     )
 
     // Galleria
@@ -365,6 +370,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         log("Collegato a $model ($target)")
         syncExposure(cam, force = true)
         startPolling()
+        refreshLens()
         // la scheda si legge solo quando si apre la galleria: con migliaia di foto
         // terrebbe occupato il canale per minuti e rallenterebbe il live view
         filesLoaded = false
@@ -415,6 +421,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         selected = emptySet()
         saved = emptySet()
         exposure = ExposureState()
+        lens = null
+        sensor = null
+        skyFocal = 0f
         lastPropsVersion = -1
         caps = Capabilities()
     }
@@ -776,10 +785,98 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun parseSeconds(s: String): Double = s.replace(',', '.').trim().toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
 
+    /** Preset scelto, evidenziato nell'interfaccia. */
+    var selectedPreset by mutableStateOf<String?>(prefs.getString("preset", null))
+        private set
+
     fun applyPreset(p: Preset) {
         intCount = p.count.toString()
         intPause = fmtNum(p.pause)
-        intBulb = fmtNum(p.bulb)
+        p.bulb?.let { intBulb = fmtNum(it) }
+        selectedPreset = p.name
+        prefs.edit().putString("preset", p.name).apply()
+        if (p.name == MILKY_WAY) refreshLens()
+    }
+
+    // ---------------------------------------------------------------- consigli per la Via Lattea
+
+    var lens by mutableStateOf<LensInfo?>(null)
+        private set
+    var sensor by mutableStateOf<SensorInfo?>(null)
+        private set
+    /** Focale usata per il calcolo (per gli zoom la sceglie l'utente). */
+    var skyFocal by mutableFloatStateOf(0f)
+        private set
+
+    fun refreshLens() {
+        val cam = camera ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val l = runCatching { cam.lens() }.getOrNull()
+            val s = runCatching { cam.sensor() }.getOrNull()
+            withContext(Dispatchers.Main) {
+                val changed = l?.name != lens?.name
+                lens = l
+                sensor = s
+                if (changed || skyFocal <= 0f) skyFocal = l?.currentFocal ?: l?.minFocal ?: 24f
+            }
+        }
+    }
+
+    fun stepSkyFocal(delta: Int) {
+        val l = lens
+        val min = l?.minFocal ?: 8f
+        val max = l?.maxFocal ?: 800f
+        val step = if (max - min > 40f) 5f else 1f
+        skyFocal = (skyFocal + delta * step).coerceIn(min, max)
+    }
+
+    /** Diaframma per il calcolo: il massimo dell'obiettivo, o il più aperto tra quelli offerti dalla fotocamera. */
+    private fun widestAperture(): Float? =
+        lens?.maxAperture ?: exposure.options[ExpoKey.AV]?.mapNotNull { SkyAdvisor.aperture(it.label) }?.minOrNull()?.toFloat()
+
+    fun skyAdvice(): SkyAdvisor.Advice? {
+        val f = skyFocal.takeIf { it > 0f } ?: return null
+        val n = widestAperture() ?: SkyAdvisor.aperture(exposure.values[ExpoKey.AV]?.label ?: "")?.toFloat() ?: 2.8f
+        return SkyAdvisor.milkyWay(f, n, sensor)
+    }
+
+    /** Imposta sulla fotocamera diaframma, tempo e ISO consigliati (serve il modo M). */
+    fun applySkyAdvice() {
+        val cam = camera ?: return
+        val adv = skyAdvice() ?: return
+        val needBulb = adv.npfSeconds > 30f && caps.bulb
+        intBulb = if (needBulb) SkyAdvisor.bulbSeconds(adv.npfSeconds).toString() else "0"
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val done = ArrayList<String>()
+                val ex = cam.exposure()
+                ex.options[ExpoKey.AV]
+                    ?.mapNotNull { o -> SkyAdvisor.aperture(o.label)?.let { o to it } }
+                    ?.minByOrNull { it.second }
+                    ?.let { (o, _) -> if (cam.setExposure(ExpoKey.AV, o.code)) done.add(o.label) }
+                val tvOpts = ex.options[ExpoKey.TV].orEmpty()
+                val tv = if (needBulb) {
+                    tvOpts.firstOrNull { it.label.equals("Bulb", true) || it.label == "B" }
+                } else {
+                    tvOpts.mapNotNull { o -> SkyAdvisor.seconds(o.label)?.let { o to it } }
+                        .filter { it.second <= adv.npfSeconds + 0.01 }
+                        .maxByOrNull { it.second }?.first
+                }
+                if (tv != null && cam.setExposure(ExpoKey.TV, tv.code)) done.add(tv.label)
+                ex.options[ExpoKey.ISO]
+                    ?.mapNotNull { o -> SkyAdvisor.iso(o.label)?.let { o to it } }
+                    ?.minByOrNull { kotlin.math.abs(it.second - adv.iso) }
+                    ?.let { (o, _) -> if (cam.setExposure(ExpoKey.ISO, o.code)) done.add("ISO ${o.label}") }
+                if (done.isEmpty()) {
+                    log("Via Lattea: valori non applicati. Metti la fotocamera in modo M e riprova")
+                } else {
+                    log("Via Lattea: impostati " + done.joinToString(" · ") + if (needBulb) " · posa B ${intBulb} s" else "")
+                }
+                syncExposure(cam)
+            } catch (e: Exception) {
+                log("Via Lattea: impostazione fallita (${e.message})")
+            }
+        }
     }
 
     private fun fmtNum(d: Double): String =

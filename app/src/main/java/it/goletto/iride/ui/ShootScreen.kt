@@ -89,6 +89,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import it.goletto.iride.MainViewModel
 import it.goletto.iride.SeqPhase
+import it.goletto.iride.MILKY_WAY
+import it.goletto.iride.camera.SkyAdvisor
+import it.goletto.iride.camera.formatAperture
 import it.goletto.iride.camera.ExpoKey
 import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.ui.theme.LocalIride
@@ -834,7 +837,15 @@ private fun Intervalometer(vm: MainViewModel) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         vm.presets.forEach { preset ->
-            PresetChip(preset.name, enabled = !running) { vm.applyPreset(preset) }
+            PresetChip(preset.name, selected = preset.name == vm.selectedPreset, enabled = !running) { vm.applyPreset(preset) }
+        }
+    }
+    val chosen = vm.presets.firstOrNull { it.name == vm.selectedPreset }
+    if (chosen != null) {
+        Text(chosen.note, style = MaterialTheme.typography.bodySmall, color = p.muted, modifier = Modifier.padding(top = 10.dp))
+        if (chosen.name == MILKY_WAY) {
+            Spacer(Modifier.height(12.dp))
+            SkyCard(vm, enabled = !running)
         }
     }
     Spacer(Modifier.height(14.dp))
@@ -866,18 +877,112 @@ private fun Intervalometer(vm: MainViewModel) {
 }
 
 @Composable
-private fun PresetChip(text: String, enabled: Boolean, onClick: () -> Unit) {
+private fun PresetChip(text: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val p = LocalIride.current
     val src = remember { MutableInteractionSource() }
-    Box(
+    val bg by animateColorAsState(if (selected) p.lcd else Color.Transparent, label = "chip")
+    Row(
         Modifier
             .pressScale(src)
             .clip(RoundedCornerShape(18.dp))
-            .border(1.dp, p.groove, RoundedCornerShape(18.dp))
-            .clickable(src, null, enabled = enabled, role = Role.Button, onClick = onClick)
+            .background(bg)
+            .border(1.dp, if (selected) p.lcd else p.groove, RoundedCornerShape(18.dp))
+            .clickable(src, null, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = MaterialTheme.typography.labelMedium, color = if (enabled) p.text else p.muted)
+        if (selected) {
+            Icon(IrideIcons.Check, null, tint = p.onLcd, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = when {
+                selected -> p.onLcd
+                enabled -> p.text
+                else -> p.muted
+            },
+        )
+    }
+}
+
+/** Valori consigliati per la Via Lattea con l'obiettivo montato, applicabili alla fotocamera. */
+@Composable
+private fun SkyCard(vm: MainViewModel, enabled: Boolean) {
+    val p = LocalIride.current
+    val lens = vm.lens
+    val adv = vm.skyAdvice()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(p.raised)
+            .padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(IrideIcons.Star, null, tint = p.lcd, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Consigliati per la Via Lattea", style = MaterialTheme.typography.titleSmall, color = p.text)
+                Text(
+                    lens?.name?.ifEmpty { null } ?: "Obiettivo non rilevato (manuale?): scegli la focale",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = p.muted,
+                )
+            }
+            IconTap(IrideIcons.Refresh, "Rileggi l'obiettivo", vm::refreshLens, tint = p.muted)
+        }
+        if (lens == null || lens.isZoom) {
+            Spacer(Modifier.height(10.dp))
+            LcdStepper(
+                "Focale", vm.skyFocal.toInt().toString(), "mm", {}, { vm.stepSkyFocal(-1) }, { vm.stepSkyFocal(1) },
+                Modifier.fillMaxWidth(), enabled = enabled,
+            )
+        }
+        if (adv != null) {
+            Spacer(Modifier.height(12.dp))
+            Row {
+                SkyValue(
+                    if (adv.npfSeconds >= 2f) "${adv.npfSeconds.toInt()} s" else String.format(Locale.ITALY, "%.1f s", adv.npfSeconds),
+                    "Tempo max", Modifier.weight(1f),
+                )
+                SkyValue(formatAperture(adv.aperture.toDouble()), "Diaframma", Modifier.weight(1f))
+                SkyValue(adv.iso.toString(), "ISO", Modifier.weight(1f))
+                SkyValue("${adv.kelvin}K", "Bianco", Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Tempo dalla regola NPF a ${adv.focal.toInt()} mm: stelle puntiformi anche ingrandendo. " +
+                    "La regola del 500 darebbe ${adv.rule500Seconds.toInt()} s, ma con stelle un po' allungate." +
+                    if (adv.sensorEstimated) " Sensore non noto: calcolo stimato." else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = p.muted,
+            )
+            Text(
+                "Scatta in RAW, stabilizzatore spento, messa a fuoco con «Stelle» nel live view. Bilanciamento consigliato 3400–4400 K.",
+                style = MaterialTheme.typography.bodySmall,
+                color = p.muted,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            GhostButton(
+                "Applica alla fotocamera",
+                vm::applySkyAdvice,
+                Modifier.fillMaxWidth(),
+                icon = IrideIcons.Check,
+                enabled = enabled && vm.caps.exposureControl,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SkyValue(value: String, label: String, modifier: Modifier) {
+    val p = LocalIride.current
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = readout(22), color = p.lcd)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = p.muted)
     }
 }
 

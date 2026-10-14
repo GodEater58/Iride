@@ -147,6 +147,12 @@ interface CameraDriver : Closeable {
 
     /** Un passo di messa a fuoco: -3..-1 verso il vicino, 1..3 verso l'infinito (3 = passo grande). */
     fun focusDrive(step: Int): Boolean = false
+
+    /** Obiettivo montato (null se la fotocamera non lo comunica, es. obiettivi manuali). */
+    fun lens(): LensInfo? = null
+
+    /** Sensore, per il passo dei pixel della regola NPF (null se non noto). */
+    fun sensor(): SensorInfo? = null
 }
 
 /** Utilità comuni per estrarre un JPEG da un blocco di dati (live view di molte marche). */
@@ -224,4 +230,37 @@ fun standardWbLabel(v: Long, brand: Brand): String = when (v) {
         }
         else -> "WB $v"
     }
+}
+
+/** Obiettivo montato: focali in mm, diaframma massimo come numero f (alla focale più corta). */
+data class LensInfo(
+    val name: String,
+    val minFocal: Float?,
+    val maxFocal: Float?,
+    val maxAperture: Float?,
+    val currentFocal: Float? = null,
+) {
+    val isZoom: Boolean get() = minFocal != null && maxFocal != null && maxFocal - minFocal >= 1f
+
+    companion object {
+        private val focalRe = Regex("""(\d+(?:\.\d+)?)\s*(?:-\s*(\d+(?:\.\d+)?))?\s*mm""")
+        private val apertureRe = Regex("""(?:[fF]/|1:)\s*(\d+(?:\.\d+)?)""")
+
+        /** Dal nome dell'obiettivo (es. "EF24-105mm f/4L IS USM") ricava focali e diaframma. */
+        fun fromName(name: String): LensInfo {
+            val f = focalRe.find(name)
+            val a = apertureRe.find(name)
+            val min = f?.groupValues?.get(1)?.toFloatOrNull()
+            val max = f?.groupValues?.get(2)?.takeIf { it.isNotEmpty() }?.toFloatOrNull() ?: min
+            return LensInfo(name.trim(), min, max, a?.groupValues?.get(1)?.toFloatOrNull())
+        }
+    }
+}
+
+/** Sensore: larghezza in mm e in pixel. */
+data class SensorInfo(val widthMm: Float, val widthPx: Int) {
+    /** Passo dei pixel in micrometri. */
+    val pitchUm: Float get() = widthMm / widthPx * 1000f
+    /** Fattore di crop rispetto al pieno formato (36 mm). */
+    val crop: Float get() = 36f / widthMm
 }

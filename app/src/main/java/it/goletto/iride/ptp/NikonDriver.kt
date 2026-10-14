@@ -1,5 +1,7 @@
 package it.goletto.iride.ptp
 
+import it.goletto.iride.camera.LensInfo
+
 import it.goletto.iride.camera.standardWbLabel
 import it.goletto.iride.camera.formatEv
 import it.goletto.iride.camera.Brand
@@ -109,6 +111,21 @@ class NikonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
         pollCount++
         if (exposureDirty || pollCount % 8 == 0) refreshExposure()
         return added.distinct().mapNotNull { objectInfo(it) }
+    }
+
+    /** Focale minima/massima e diaframma massimo (centesimi), focale attuale (0x5008). */
+    override fun lens(): LensInfo? {
+        val mn = getPropDesc(0xD0E3)?.current?.let { it / 100f }
+        val mx = getPropDesc(0xD0E4)?.current?.let { it / 100f }
+        val ap = getPropDesc(0xD0E5)?.current?.let { it / 100f }
+        val cur = getPropDesc(0x5008)?.current?.let { it / 100f }
+        if (mn == null && mx == null && cur == null) return null
+        val name = buildString {
+            append("Nikkor ")
+            if (mn != null && mx != null && mx - mn >= 1f) append("${mn.toInt()}-${mx.toInt()} mm") else append("${(mn ?: cur ?: 0f).toInt()} mm")
+            if (ap != null && ap > 0f) append(" f/" + if (ap >= 10f) ap.toInt().toString() else String.format(java.util.Locale.ROOT, "%.1f", ap))
+        }
+        return LensInfo(name, mn ?: cur, mx ?: cur, ap?.takeIf { it > 0f }, cur)
     }
 
     private var zoomValues: List<Long> = emptyList()
