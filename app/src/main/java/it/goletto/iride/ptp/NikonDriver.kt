@@ -17,7 +17,7 @@ import it.goletto.iride.camera.formatSeconds
  * scatto su scheda con InitiateCaptureRecInMedia, posa B con TerminateCapture,
  * live view con Start/GetLiveViewImg/End, eventi con GetEvent.
  */
-class NikonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log) {
+class NikonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log) {
 
     override val brand = Brand.NIKON
     override var caps = Capabilities()

@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import it.goletto.iride.net.CameraNetwork
+import it.goletto.iride.net.UsbLink
 import it.goletto.iride.camera.Brand
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.CameraDriver
@@ -65,6 +66,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("iride", Context.MODE_PRIVATE)
     private val net = CameraNetwork(app)
+    private val usb = UsbLink(app)
     private val main = Handler(Looper.getMainLooper())
     private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.ITALY)
 
@@ -120,12 +122,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var cameraHost by mutableStateOf("")
         private set
+    /** Collegata col cavo USB invece che via Wi-Fi. */
+    var viaUsb by mutableStateOf(false)
+        private set
+    /** Nome della fotocamera collegata al cavo USB (null = nessuna). */
+    var usbCamera by mutableStateOf<String?>(null)
+        private set
+    val usbSupported: Boolean get() = usb.supported
     val logs = mutableStateListOf<LogLine>()
 
     // Scatto
     var liveFrame by mutableStateOf<ImageBitmap?>(null)
         private set
     var liveOn by mutableStateOf(false)
+        private set
+    /** C'è almeno un fotogramma: cambia una volta sola, così il mirino non si ricompone a ogni fotogramma. */
+    var hasFrame by mutableStateOf(false)
+        private set
+    /** Fotogrammi al secondo e ritardo (richiesta → fotogramma pronto), es. "24 fps · 60 ms". */
+    var lvStats by mutableStateOf("")
         private set
     var autofocus by mutableStateOf(true)
     var focusing by mutableStateOf(false)
@@ -255,22 +270,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     thread(isDaemon = true) { runCatching { cam.close() } }
                     throw CancellationException("annullato")
                 }
-                val target = DriverFactory.lastHost
-                camera = cam
-                connectedBrand = cam.brand
-                caps = cam.caps
-                cam.setLiveViewQuality(lvQuality)
-                if (!cam.caps.autofocusToggle) autofocus = true
-                model = cam.model.ifEmpty { "Fotocamera" }
-                cameraHost = target
-                connected = true
-                setStatus("Collegato a $model")
-                log("Collegato a $model ($target)")
-                syncExposure(cam, force = true)
-                startPolling()
-                // la scheda si legge solo quando si apre la galleria: con migliaia di foto
-                // terrebbe occupato il canale per minuti e rallenterebbe il live view
-                filesLoaded = false
+                onConnected(cam, usbLink = false)
             } catch (e: CancellationException) {
                 cleanup()
                 setStatus("Collegamento annullato")
@@ -282,6 +282,65 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 busy = false
             }
         }
+    }
+
+    /** Collegamento col cavo USB (OTG), alternativo al Wi-Fi. */
+    fun connectUsb() {
+        if (busy || connected) return
+        savePrefs()
+        busy = true
+        setStatus("Collegamento via USB…")
+        connectJob = viewModelScope.launch {
+            try {
+                val found = usb.find() ?: throw IOException("Nessuna fotocamera sul cavo USB. Collegala con un adattatore OTG e accendila.")
+                setStatus("Consenti a Iride di usare ${found.name}")
+                if (!usb.requestPermission(found.device)) throw IOException("Permesso per la fotocamera USB negato")
+                net.release()
+                setStatus("Collegamento a ${found.name}…")
+                val cam = withContext(Dispatchers.IO + NonCancellable) {
+                    DriverFactory.connectUsb(brand, usb, found, ::log)
+                }
+                if (!isActive) {
+                    thread(isDaemon = true) { runCatching { cam.close() } }
+                    throw CancellationException("annullato")
+                }
+                onConnected(cam, usbLink = true)
+            } catch (e: CancellationException) {
+                cleanup()
+                setStatus("Collegamento annullato")
+            } catch (e: Exception) {
+                log("Errore: ${e.message}")
+                cleanup()
+                setStatus(e.message ?: "Errore sconosciuto", error = true)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    /** Aggiorna la fotocamera vista sul cavo USB (la schermata di collegamento lo chiama di continuo). */
+    fun refreshUsb() {
+        usbCamera = if (usb.supported) usb.find()?.name else null
+    }
+
+    private fun onConnected(cam: CameraDriver, usbLink: Boolean) {
+        val target = if (usbLink) "USB" else DriverFactory.lastHost
+        camera = cam
+        viaUsb = usbLink
+        connectedBrand = cam.brand
+        caps = cam.caps
+        cam.setLiveViewQuality(lvQuality)
+        if (!cam.caps.autofocusToggle) autofocus = true
+        model = cam.model.ifEmpty { "Fotocamera" }
+        cameraHost = target
+        connected = true
+        setStatus("Collegato a $model")
+        log("Collegato a $model ($target)")
+        syncExposure(cam, force = true)
+        startPolling()
+        // la scheda si legge solo quando si apre la galleria: con migliaia di foto
+        // terrebbe occupato il canale per minuti e rallenterebbe il live view
+        filesLoaded = false
     }
 
     fun cancelConnect() {
@@ -309,9 +368,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         net.lowLatency(false)
         net.release()
         connected = false
+        viaUsb = false
         liveOn = false
         focusing = false
         liveFrame = null
+        hasFrame = false
+        lvStats = ""
         intervalRunning = false
         seqPhase = SeqPhase.IDLE
         downloading = false
@@ -352,9 +414,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             while (isActive) {
                 delay(1200)
                 val cam = camera ?: break
-                // durante il live view lo stato si legge meno spesso: il canale resta ai fotogrammi
+                // durante il live view via Wi-Fi lo stato si legge solo ogni 6 s: il canale resta ai
+                // fotogrammi. Subito dopo uno scatto si legge comunque, per vedere il nuovo file.
                 tick++
-                if (liveOn && !intervalRunning && tick % 3 != 0) continue
+                val recentShot = SystemClock.elapsedRealtime() - lastShotAt < 8000
+                if (liveOn && !viaUsb && !intervalRunning && !recentShot && tick % 5 != 0) continue
                 try {
                     val added = cam.poll()
                     syncExposure(cam)
@@ -395,9 +459,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- scatto
 
+    @Volatile
+    private var lastShotAt = 0L
+
     fun shoot() {
         val cam = camera ?: return
         shotTick++
+        lastShotAt = SystemClock.elapsedRealtime()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val shot = cam.capture(autofocus)
@@ -458,25 +526,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             liveOn = false
             liveJob?.cancel()
             liveFrame = null
+            hasFrame = false
+            lvStats = ""
             net.lowLatency(false)
             viewModelScope.launch(Dispatchers.IO) { runCatching { cam.stopLiveView() } }
             return
         }
         liveOn = true
-        net.lowLatency(true)
+        if (!viaUsb) net.lowLatency(true)
         liveJob = viewModelScope.launch(Dispatchers.IO) {
             // due fasi in parallelo: una scarica i fotogrammi, l'altra li decodifica.
             // Il canale tiene solo l'ultimo: se la decodifica è indietro i vecchi si scartano.
-            val frames = Channel<ByteArray>(Channel.CONFLATED)
+            val frames = Channel<Frame>(Channel.CONFLATED)
             val decoder = launch(Dispatchers.Default) { decodeFrames(frames) }
             try {
                 cam.startLiveView()
                 var lastFrame = SystemClock.elapsedRealtime()
                 while (isActive) {
+                    val asked = SystemClock.elapsedRealtime()
                     val jpg = cam.liveViewFrame()
                     if (jpg != null && jpg.size > 100) {
                         lastFrame = SystemClock.elapsedRealtime()
-                        frames.trySend(jpg)
+                        frames.trySend(Frame(jpg, asked))
                     } else {
                         if (SystemClock.elapsedRealtime() - lastFrame > 15_000) throw IOException("nessun fotogramma ricevuto")
                         // fotogramma non ancora pronto: si riprova quasi subito
@@ -490,6 +561,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.Main) {
                     liveOn = false
                     liveFrame = null
+                    hasFrame = false
+                    lvStats = ""
                     net.lowLatency(false)
                 }
             } finally {
@@ -499,11 +572,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Decodifica riusando tre bitmap a turno (una mostrata, una in arrivo, una libera): niente spazzatura a ogni fotogramma. */
-    private suspend fun decodeFrames(frames: Channel<ByteArray>) {
+    private class Frame(val jpg: ByteArray, val askedAt: Long)
+
+    /**
+     * Decodifica riusando tre bitmap a turno (una mostrata, una in arrivo, una libera): niente
+     * spazzatura a ogni fotogramma. Il fotogramma si pubblica direttamente da qui, senza
+     * aspettare il thread principale: il mirino lo ridisegna al primo aggiornamento dello schermo.
+     */
+    private suspend fun decodeFrames(frames: Channel<Frame>) {
         val pool = arrayOfNulls<Bitmap>(3)
         var turn = 0
-        for (jpg in frames) {
+        var count = 0
+        var delaySum = 0L
+        var windowStart = SystemClock.elapsedRealtime()
+        for (f in frames) {
+            val jpg = f.jpg
             val opts = BitmapFactory.Options().apply {
                 inMutable = true
                 inBitmap = pool[turn]
@@ -517,8 +600,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } ?: continue
             pool[turn] = bmp
             turn = (turn + 1) % pool.size
-            val ib = bmp.asImageBitmap()
-            withContext(Dispatchers.Main) { if (liveOn) liveFrame = ib }
+            if (!liveOn) continue
+            liveFrame = bmp.asImageBitmap()
+            if (!hasFrame) hasFrame = true
+
+            // statistiche ogni secondo
+            val now = SystemClock.elapsedRealtime()
+            count++
+            delaySum += now - f.askedAt
+            if (now - windowStart >= 1000) {
+                val fps = count * 1000f / (now - windowStart)
+                lvStats = String.format(Locale.ITALY, "%.0f fps · %d ms", fps, delaySum / count)
+                count = 0
+                delaySum = 0
+                windowStart = now
+            }
         }
     }
 

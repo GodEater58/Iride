@@ -10,8 +10,8 @@ import it.goletto.iride.camera.ExposureState
 import it.goletto.iride.camera.Shot
 import java.util.concurrent.ConcurrentHashMap
 
-/** Canon EOS (6D, 1300D e simili) via PTP/IP, con le estensioni EOS documentate da libgphoto2. */
-class CanonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log) {
+/** Canon EOS (6D, 1300D e simili) via PTP/IP o USB, con le estensioni EOS documentate da libgphoto2. */
+class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log) {
 
     override val brand = Brand.CANON
     override var caps = Capabilities()
@@ -159,10 +159,12 @@ class CanonDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log)
      * piccole pesano molto meno via Wi-Fi.
      */
     private fun outputFor(q: LvQuality): Int {
-        val wanted = when (q) {
-            LvQuality.FLUID -> listOf(8, 4, 2)
-            LvQuality.BALANCED -> listOf(4, 8, 2)
-            LvQuality.DETAIL -> listOf(2, 4, 8)
+        val wanted = when {
+            // col cavo USB la banda basta per l'uscita grande, tranne in «Fluido»
+            ptp.wired && q != LvQuality.FLUID -> listOf(2, 4, 8)
+            q == LvQuality.FLUID -> listOf(8, 4, 2)
+            q == LvQuality.BALANCED -> listOf(4, 8, 2)
+            else -> listOf(2, 4, 8)
         }
         val list = allowed[CanonProp.EVF_OUTPUT_DEVICE]
         for (bit in wanted) {

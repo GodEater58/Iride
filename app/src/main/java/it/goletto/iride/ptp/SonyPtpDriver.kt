@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
  * In PC remoto la scheda non è consultabile: ogni foto scattata resta nella memoria
  * della fotocamera (oggetto 0xFFFFC001) e va scaricata subito dal telefono.
  */
-class SonyPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log) {
+class SonyPtpDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log) {
 
     override val brand = Brand.SONY
     override val caps = Capabilities(

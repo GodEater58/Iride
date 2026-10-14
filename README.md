@@ -1,6 +1,6 @@
 # Iride
 
-App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più completa alle app dei produttori (Camera Connect, SnapBridge, Imaging Edge…). Versione attuale: **0.5.1**.
+App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più completa alle app dei produttori (Camera Connect, SnapBridge, Imaging Edge…). Versione attuale: **0.6**.
 
 ## Marche supportate
 
@@ -22,11 +22,12 @@ App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più
 | Funzione | Note |
 |---|---|
 | Collegamento con **dati mobili sempre attivi** | Hotspot del telefono, stessa rete, oppure Wi-Fi della fotocamera tenuto "locale" all'app |
+| Cavo USB (facoltativo) | Con un adattatore OTG: live view quasi istantaneo, stessi comandi del Wi-Fi (Canon, Nikon, Sony; altre come PTP generico) |
 | Ricerca automatica | Cerca le porte tipiche della marca (15740, 55740, 8080, 10000, 80) e riusa la connessione trovata; oppure IP manuale |
 | Parametri di scatto | Tempo, diaframma, ISO, compensazione, bilanciamento del bianco e modo, modificabili dal telefono quando la fotocamera lo consente |
 | Scatto remoto | Pulsante a diaframma animato, autofocus allo scatto attivabile |
 | Messa a fuoco | Tasto «Metti a fuoco» e pulsante «AF» sul mirino, con esito verde/rosso |
-| Live view | Fluido / Bilanciato / Dettaglio, griglia dei terzi, pizzica per zoom, doppio tocco 4× |
+| Live view | Fluido / Bilanciato / Dettaglio, indicatore fps e ritardo, griglia dei terzi, pizzica per zoom, doppio tocco 4× |
 | Intervallometro | Preset, numero scatti, pausa, posa B oltre i 30 s, durata stimata |
 | Galleria | Letta all'apertura, raggruppata per giorno, filtro RAW/JPG, anteprima, selezione multipla |
 | Download dei **RAW originali** | Camera Connect li converte in JPEG |
@@ -55,6 +56,7 @@ Le istruzioni per le altre marche sono nella schermata di collegamento («Come p
 
 - **Un solo collegamento alla volta.** Le fotocamere PTP/IP (Canon, Nikon, Sony, Fujifilm) accettano una sola connessione. Se un tentativo fallisce, spegni e riaccendi il Wi-Fi della fotocamera prima di riprovare.
 - **Wi-Fi della fotocamera lento.** Sulla 6D un RAW può richiedere fino a 20 secondi. Per il live view usa «Fluido» per inquadrare e «Dettaglio» per la messa a fuoco manuale.
+- **Cavo USB.** Serve un adattatore OTG (USB-C → USB-A o il cavo della fotocamera). Il collegamento USB non è ancora stato provato su una fotocamera reale.
 - **Sony a7 IV e successive:** disattiva l'autenticazione di accesso nel menu Rete (non supportata).
 - **Nikon Z e modelli recenti con SnapBridge:** l'abbinamento via Bluetooth potrebbe impedire il collegamento (non verificato).
 - **Fujifilm:** la dimensione del live view non è regolabile, perché le fonti non concordano sul codice da usare.
@@ -62,9 +64,9 @@ Le istruzioni per le altre marche sono nella schermata di collegamento («Come p
 ## Struttura del codice
 
 - `camera/` — modello comune (`CameraDriver`, esposizione, file) e `DriverFactory` (ricerca e riconoscimento della marca)
-- `ptp/` — client PTP/IP e driver Canon, Nikon, Sony (PC remoto), Fujifilm, PTP generico
+- `ptp/` — canale PTP (`PtpTransport`: Wi-Fi `PtpIpClient`, cavo `PtpUsbClient`) e driver Canon, Nikon, Sony (PC remoto), Fujifilm, PTP generico
 - `http/` — driver Sony (API remota), Olympus, Panasonic
-- `net/` — rete: Wi-Fi della fotocamera "locale" all'app, ricerca, HTTP/UDP instradati, Wi-Fi a bassa latenza
+- `net/` — rete: Wi-Fi della fotocamera "locale" all'app, ricerca, HTTP/UDP instradati, Wi-Fi a bassa latenza; `UsbLink` per il cavo USB
 - `ui/` — interfaccia Jetpack Compose (`theme/` colori e font Barlow, `Iris.kt` diaframma, una schermata per file)
 - `licenses/` — licenza OFL dei font
 

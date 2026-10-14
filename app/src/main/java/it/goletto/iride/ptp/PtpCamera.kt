@@ -55,7 +55,7 @@ class DeviceInfo(
  * Base comune per le fotocamere PTP/IP: informazioni sul dispositivo, elenco file,
  * miniature, download e proprietà standard. Le marche aggiungono i propri comandi.
  */
-abstract class PtpCamera(protected val ptp: PtpIpClient, protected val log: (String) -> Unit) : CameraDriver {
+abstract class PtpCamera(protected val ptp: PtpTransport, protected val log: (String) -> Unit) : CameraDriver {
 
     protected var info: DeviceInfo = DeviceInfo(0, emptySet(), emptySet(), "", "")
     protected val ops: Set<Int> get() = info.operations
@@ -188,7 +188,7 @@ abstract class PtpCamera(protected val ptp: PtpIpClient, protected val log: (Str
     }
 
     companion object {
-        fun readDeviceInfo(ptp: PtpIpClient): DeviceInfo {
+        fun readDeviceInfo(ptp: PtpTransport): DeviceInfo {
             val di = ptp.transaction(PtpOp.GET_DEVICE_INFO)
             if (!di.ok) return DeviceInfo(0, emptySet(), emptySet(), "", ptp.cameraName)
             val r = Reader(di.data)

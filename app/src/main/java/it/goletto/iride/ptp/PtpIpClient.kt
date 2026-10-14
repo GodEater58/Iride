@@ -3,7 +3,6 @@ package it.goletto.iride.ptp
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
-import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -29,7 +28,7 @@ class PtpEvent(val code: Int, val params: IntArray)
 class PtpIpClient(
     private val socketFactory: SocketFactory,
     private val log: (String) -> Unit,
-) : Closeable {
+) : PtpTransport {
 
     private var cmdSocket: Socket? = null
     private var evtSocket: Socket? = null
@@ -41,14 +40,15 @@ class PtpIpClient(
     private val lock = java.util.concurrent.locks.ReentrantLock(true)
 
     @Volatile
-    var isOpen = false
+    override var isOpen = false
         private set
 
-    var cameraName: String = ""
+    override var cameraName: String = ""
         private set
 
-    /** Coda degli eventi standard: i driver la svuotano durante il polling. */
-    val events = java.util.concurrent.ConcurrentLinkedQueue<PtpEvent>()
+    override val wired = false
+
+    override val events = java.util.concurrent.ConcurrentLinkedQueue<PtpEvent>()
 
     /**
      * Si collega alla fotocamera. Se [preconnected] è valorizzato usa quella connessione
@@ -131,16 +131,12 @@ class PtpIpClient(
         }
     }
 
-    /**
-     * Esegue una transazione PTP. Se [sink] è valorizzato i dati ricevuti vengono scritti lì
-     * (download di file grandi senza tenerli in memoria), altrimenti finiscono in [PtpResponse.data].
-     */
-    fun transaction(
+    override fun transaction(
         op: Int,
-        params: IntArray = IntArray(0),
-        dataOut: ByteArray? = null,
-        sink: OutputStream? = null,
-        onProgress: ((Long, Long) -> Unit)? = null,
+        params: IntArray,
+        dataOut: ByteArray?,
+        sink: OutputStream?,
+        onProgress: ((Long, Long) -> Unit)?,
     ): PtpResponse {
         lock.lock()
         try {

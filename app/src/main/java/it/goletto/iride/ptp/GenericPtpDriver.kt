@@ -14,7 +14,7 @@ import it.goletto.iride.camera.formatSeconds
  * Qualsiasi fotocamera PTP/IP che non ha un driver dedicato (es. Ricoh, Pentax, modelli rari):
  * solo comandi standard. Scatto con InitiateCapture, file e download, esposizione se esposta.
  */
-class GenericPtpDriver(ptp: PtpIpClient, log: (String) -> Unit) : PtpCamera(ptp, log) {
+class GenericPtpDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log) {
 
     override val brand = Brand.OTHER_PTP
     override var caps = Capabilities(liveView = false, bulb = false)

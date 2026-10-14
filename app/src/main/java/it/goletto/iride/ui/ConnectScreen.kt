@@ -41,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -56,6 +57,7 @@ import it.goletto.iride.camera.Brand
 import androidx.compose.foundation.horizontalScroll
 import it.goletto.iride.ui.theme.LocalIride
 import it.goletto.iride.ui.theme.readout
+import kotlinx.coroutines.delay
 
 @Composable
 fun ConnectScreen(vm: MainViewModel) {
@@ -161,6 +163,11 @@ fun ConnectScreen(vm: MainViewModel) {
             )
         }
 
+        if (vm.usbSupported) {
+            Spacer(Modifier.height(20.dp))
+            UsbCard(vm)
+        }
+
         Spacer(Modifier.height(28.dp))
         Hairline()
         Expandable("Come preparare la fotocamera", initiallyOpen = false) {
@@ -199,6 +206,43 @@ fun ConnectScreen(vm: MainViewModel) {
             }
         }
         Spacer(Modifier.height(32.dp))
+    }
+}
+
+/** Alternativa col cavo: secondaria rispetto al Wi-Fi, utile quando serve il live view più rapido. */
+@Composable
+private fun UsbCard(vm: MainViewModel) {
+    val p = LocalIride.current
+    LaunchedEffect(Unit) {
+        while (true) {
+            vm.refreshUsb()
+            delay(1500)
+        }
+    }
+    val name = vm.usbCamera
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(1.dp, if (name != null) p.lcd.copy(alpha = 0.6f) else p.groove, RoundedCornerShape(16.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(IrideIcons.Usb, null, tint = if (name != null) p.lcd else p.muted, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Oppure col cavo USB", style = MaterialTheme.typography.labelLarge, color = p.text)
+            Text(
+                if (name != null) "$name collegata: live view quasi istantaneo"
+                else "Con un adattatore OTG il live view è quasi istantaneo",
+                style = MaterialTheme.typography.bodySmall,
+                color = p.muted,
+            )
+        }
+        if (name != null) {
+            Spacer(Modifier.width(10.dp))
+            GhostButton("Collega", vm::connectUsb, enabled = !vm.busy)
+        }
     }
 }
 

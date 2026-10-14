@@ -5,6 +5,7 @@ import it.goletto.iride.http.PanasonicDriver
 import it.goletto.iride.http.SonyHttpDriver
 import it.goletto.iride.net.CameraNetwork
 import it.goletto.iride.net.NetContext
+import it.goletto.iride.net.UsbLink
 import it.goletto.iride.ptp.CanonDriver
 import it.goletto.iride.ptp.DeviceInfo
 import it.goletto.iride.ptp.FujiDriver
@@ -13,6 +14,8 @@ import it.goletto.iride.ptp.NikonDriver
 import it.goletto.iride.ptp.PtpCamera
 import it.goletto.iride.ptp.PtpIp
 import it.goletto.iride.ptp.PtpIpClient
+import it.goletto.iride.ptp.PtpTransport
+import it.goletto.iride.ptp.PtpUsbClient
 import it.goletto.iride.ptp.SonyPtpDriver
 import java.io.IOException
 import java.util.Locale
@@ -174,23 +177,43 @@ object DriverFactory {
         val client = PtpIpClient(socketFactory, log)
         try {
             client.connect(host, guid, friendlyName, socket)
-            val di = PtpCamera.readDeviceInfo(client)
-            val detected = detect(di)
-            val brand = if (requested == Brand.AUTO) detected else requested
-            if (requested != Brand.AUTO && detected != Brand.OTHER_PTP && detected != requested) {
-                log("Attenzione: la fotocamera sembra una ${detected.label}, uso comunque il driver ${requested.label}")
-            }
-            val driver: PtpCamera = when (brand) {
-                Brand.CANON -> CanonDriver(client, log)
-                Brand.NIKON -> NikonDriver(client, log)
-                Brand.SONY -> SonyPtpDriver(client, log)
-                else -> GenericPtpDriver(client, log)
-            }
-            driver.initialize()
+            return ptpDriver(requested, client, log)
+        } catch (e: Exception) {
+            runCatching { client.close() }
+            throw e
+        }
+    }
+
+    /** Collegamento col cavo USB: stessi driver PTP, cambia solo il canale. */
+    fun connectUsb(requested: Brand, link: UsbLink, found: UsbLink.Found, log: (String) -> Unit): CameraDriver {
+        val conn = link.open(found) ?: throw IOException("Impossibile aprire la fotocamera USB")
+        val client = PtpUsbClient(conn, found.intf, found.name, log)
+        try {
+            client.connect()
+            val driver = ptpDriver(requested, client, log)
+            lastHost = "USB"
             return driver
         } catch (e: Exception) {
             runCatching { client.close() }
             throw e
         }
+    }
+
+    /** Riconosce la marca dalle informazioni del dispositivo e crea il driver adatto. */
+    private fun ptpDriver(requested: Brand, client: PtpTransport, log: (String) -> Unit): CameraDriver {
+        val di = PtpCamera.readDeviceInfo(client)
+        val detected = detect(di)
+        val brand = if (requested == Brand.AUTO) detected else requested
+        if (requested != Brand.AUTO && detected != Brand.OTHER_PTP && detected != requested) {
+            log("Attenzione: la fotocamera sembra una ${detected.label}, uso comunque il driver ${requested.label}")
+        }
+        val driver: PtpCamera = when (brand) {
+            Brand.CANON -> CanonDriver(client, log)
+            Brand.NIKON -> NikonDriver(client, log)
+            Brand.SONY -> SonyPtpDriver(client, log)
+            else -> GenericPtpDriver(client, log)
+        }
+        driver.initialize()
+        return driver
     }
 }

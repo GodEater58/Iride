@@ -65,6 +65,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import kotlin.math.roundToInt
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -126,7 +131,8 @@ private fun Viewfinder(vm: MainViewModel) {
     val p = LocalIride.current
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
-    val frame = vm.liveFrame
+    // il fotogramma si legge solo nella fase di disegno (LiveImage): qui basta sapere se c'è
+    val hasFrame = vm.hasFrame
     LaunchedEffect(vm.liveOn) {
         if (!vm.liveOn) {
             scale = 1f
@@ -142,11 +148,9 @@ private fun Viewfinder(vm: MainViewModel) {
     ) {
         val wPx = constraints.maxWidth.toFloat()
         val hPx = constraints.maxHeight.toFloat()
-        if (frame != null) {
-            Image(
-                bitmap = frame,
-                contentDescription = "Live view",
-                contentScale = ContentScale.Fit,
+        if (hasFrame) {
+            LiveImage(
+                vm,
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
@@ -190,7 +194,7 @@ private fun Viewfinder(vm: MainViewModel) {
             ViewfinderIdle(vm)
         }
 
-        FinderOverlay(grid = vm.gridOn && frame != null, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.fillMaxSize())
+        FinderOverlay(grid = vm.gridOn && hasFrame, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.fillMaxSize())
 
         // indicatori
         if (vm.liveOn) {
@@ -208,6 +212,19 @@ private fun Viewfinder(vm: MainViewModel) {
                 Text("Live", style = MaterialTheme.typography.labelSmall, color = Color.White)
             }
         }
+        if (vm.liveOn && vm.lvStats.isNotEmpty()) {
+            Text(
+                vm.lvStats,
+                style = readout(13),
+                color = Color.White.copy(alpha = 0.85f),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
         if (scale > 1.01f) {
             Text(
                 String.format(Locale.ITALY, "%.1f×", scale),
@@ -221,7 +238,7 @@ private fun Viewfinder(vm: MainViewModel) {
                     .padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
-        if (frame != null && vm.caps.autofocusButton) {
+        if (hasFrame && vm.caps.autofocusButton) {
             Row(
                 Modifier
                     .align(Alignment.BottomStart)
@@ -237,7 +254,7 @@ private fun Viewfinder(vm: MainViewModel) {
                 Text(if (vm.focusing) "Fuoco…" else "AF", style = MaterialTheme.typography.labelMedium, color = Color.White)
             }
         }
-        if (frame != null) {
+        if (hasFrame) {
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
@@ -289,7 +306,7 @@ private fun Viewfinder(vm: MainViewModel) {
             }
         }
     }
-    if (frame != null) {
+    if (hasFrame) {
         Text(
             "Pizzica per ingrandire, doppio tocco per zoom 4× sul punto. «Fluido» per inquadrare, «Dettaglio» per la messa a fuoco manuale.",
             style = MaterialTheme.typography.labelSmall,
@@ -297,6 +314,32 @@ private fun Viewfinder(vm: MainViewModel) {
             modifier = Modifier.padding(top = 6.dp),
         )
     }
+}
+
+/**
+ * Il fotogramma del live view. Lo stato viene letto dentro drawBehind: a ogni fotogramma
+ * si ridisegna solo questo riquadro, senza ricomporre né rimisurare il mirino.
+ */
+@Composable
+private fun LiveImage(vm: MainViewModel, modifier: Modifier) {
+    Spacer(
+        modifier
+            .semantics { contentDescription = "Live view" }
+            .drawBehind {
+                val img = vm.liveFrame ?: return@drawBehind
+                val iw = img.width.toFloat()
+                val ih = img.height.toFloat()
+                val k = minOf(size.width / iw, size.height / ih)
+                val dw = (iw * k).roundToInt()
+                val dh = (ih * k).roundToInt()
+                drawImage(
+                    img,
+                    dstOffset = IntOffset(((size.width - dw) / 2f).roundToInt(), ((size.height - dh) / 2f).roundToInt()),
+                    dstSize = IntSize(dw, dh),
+                    filterQuality = FilterQuality.Low,
+                )
+            },
+    )
 }
 
 @Composable
