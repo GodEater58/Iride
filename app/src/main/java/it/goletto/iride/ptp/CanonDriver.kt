@@ -42,10 +42,104 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
         if (PtpOp.CANON_SET_EVENT_MODE in ops) check(ptp.transaction(PtpOp.CANON_SET_EVENT_MODE, intArrayOf(1)), "SetEventMode")
         // La prima GetEvent restituisce lo stato completo (proprietà e valori ammessi)
         repeat(2) { runCatching { poll() } }
+        val (w, h) = sensorSize(info.model)
+        coordW = w
+        coordH = h
         caps = Capabilities(
             autofocusButton = PtpOp.CANON_DO_AF in ops || PtpOp.CANON_RELEASE_ON in ops,
             liveViewQuality = true,
+            zoomLevels = if (PtpOp.CANON_ZOOM in ops) listOf("1×", "5×", "10×") else emptyList(),
+            zoomPosition = PtpOp.CANON_ZOOM_POSITION in ops,
+            focusDrive = PtpOp.CANON_DRIVE_LENS in ops,
         )
+    }
+
+    // ---------------------------------------------------------------- assistente di messa a fuoco
+
+    /**
+     * Coordinate del riquadro di ingrandimento: si assume che siano in pixel del sensore
+     * (come il sistema di coordinate del live view nell'SDK Canon). Se non fosse esatto,
+     * l'app ricentra la stella dopo lo zoom e il riquadro si può trascinare.
+     */
+    private var coordW = 6000
+    private var coordH = 4000
+    private var zoom = 1
+    private var zcx = 0.5f
+    private var zcy = 0.5f
+
+    private fun sensorSize(model: String): Pair<Int, Int> {
+        val m = model.uppercase()
+        return when {
+            "6D MARK II" in m -> 6240 to 4160
+            "6D" in m -> 5472 to 3648
+            "5D MARK IV" in m -> 6720 to 4480
+            "5D MARK III" in m -> 5760 to 3840
+            "5D MARK II" in m -> 5616 to 3744
+            "5DS" in m -> 8688 to 5792
+            "7D MARK II" in m -> 5472 to 3648
+            "7D" in m -> 5184 to 3456
+            "90D" in m || "M6 MARK II" in m -> 6960 to 4640
+            "R5" in m -> 8192 to 5464
+            "R6" in m -> 5472 to 3648
+            "RP" in m -> 6240 to 4160
+            "EOS R" in m -> 6720 to 4480
+            "80D" in m || "77D" in m || "800D" in m || "200D" in m || "1300D" in m.replace(" ", "") || "750D" in m || "760D" in m -> 6000 to 4000
+            "70D" in m || "60D" in m || "700D" in m || "100D" in m || "1200D" in m -> 5184 to 3456
+            else -> 6000 to 4000
+        }
+    }
+
+    private fun sendZoomPosition() {
+        val view = maxOf(zoom, 5)   // a 1× il riquadro mostrato è quello del 5×
+        val rw = coordW / view
+        val rh = coordH / view
+        zcx = zcx.coerceIn(rw / 2f / coordW, 1f - rw / 2f / coordW)
+        zcy = zcy.coerceIn(rh / 2f / coordH, 1f - rh / 2f / coordH)
+        val x = (zcx * coordW - rw / 2f).toInt().coerceIn(0, coordW - rw)
+        val y = (zcy * coordH - rh / 2f).toInt().coerceIn(0, coordH - rh)
+        check(ptp.transaction(PtpOp.CANON_ZOOM_POSITION, intArrayOf(x, y)), "Posizione zoom")
+        log("Riquadro di ingrandimento: $x,$y (${coordW}×$coordH)")
+    }
+
+    override fun liveZoom(level: Int, cx: Float?, cy: Float?): Boolean {
+        if (PtpOp.CANON_ZOOM !in ops) return false
+        val factor = listOf(1, 5, 10).getOrElse(level) { 1 }
+        if (cx != null && cy != null && PtpOp.CANON_ZOOM_POSITION in ops) {
+            // il punto toccato è relativo alla vista attuale: se si è già ingranditi va riportato all'intera
+            val view = if (zoom > 1) zoom.toFloat() else 1f
+            if (zoom > 1) {
+                zcx += (cx - 0.5f) / view
+                zcy += (cy - 0.5f) / view
+            } else {
+                zcx = cx
+                zcy = cy
+            }
+            sendZoomPosition()
+        }
+        // ingranditi serve l'uscita grande: con quella per smartphone si perderebbe il dettaglio
+        if (factor > 1 && zoom == 1) setPropEx(CanonProp.EVF_OUTPUT_DEVICE, 2)
+        val ok = check(ptp.transaction(PtpOp.CANON_ZOOM, intArrayOf(factor)), "Zoom ${factor}×").ok
+        if (ok) {
+            if (factor == 1 && zoom > 1) setPropEx(CanonProp.EVF_OUTPUT_DEVICE, outputFor(quality))
+            zoom = factor
+        }
+        return ok
+    }
+
+    override fun panZoom(dx: Float, dy: Float): Boolean {
+        if (PtpOp.CANON_ZOOM_POSITION !in ops || zoom == 1) return false
+        zcx += dx / zoom
+        zcy += dy / zoom
+        sendZoomPosition()
+        return true
+    }
+
+    override fun focusDrive(step: Int): Boolean {
+        if (PtpOp.CANON_DRIVE_LENS !in ops || step == 0) return false
+        val size = minOf(3, kotlin.math.abs(step))
+        // 1..3 verso il vicino, 0x8001..0x8003 verso l'infinito (libgphoto2 "manualfocusdrive")
+        val v = if (step < 0) size else 0x8000 or size
+        return check(ptp.transaction(PtpOp.CANON_DRIVE_LENS, intArrayOf(v)), "Messa a fuoco manuale").ok
     }
 
     private fun label(prop: Int, v: Int): String = when (prop) {
@@ -175,6 +269,7 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
     }
 
     override fun startLiveView() {
+        zoom = 1
         setPropEx(CanonProp.EVF_MODE, 1)
         val out = outputFor(quality)
         if (!setPropEx(CanonProp.EVF_OUTPUT_DEVICE, out).ok && out != 2) {
@@ -201,6 +296,8 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
     }
 
     override fun stopLiveView() {
+        if (zoom > 1) runCatching { ptp.transaction(PtpOp.CANON_ZOOM, intArrayOf(1)) }
+        zoom = 1
         setPropEx(CanonProp.EVF_OUTPUT_DEVICE, 0)
     }
 

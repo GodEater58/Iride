@@ -36,6 +36,8 @@ import it.goletto.iride.camera.ExpoKey
 import it.goletto.iride.camera.ExposureState
 import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.camera.Shot
+import it.goletto.iride.camera.StarMeasure
+import it.goletto.iride.camera.StarMeter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -142,6 +144,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Fotogrammi al secondo e ritardo (richiesta → fotogramma pronto), es. "24 fps · 60 ms". */
     var lvStats by mutableStateOf("")
         private set
+
+    // Assistente di messa a fuoco sulle stelle
+    var starAssist by mutableStateOf(false)
+        private set
+    /** Indice in caps.zoomLevels dell'ingrandimento della fotocamera (0 = intero). */
+    var zoomIndex by mutableIntStateOf(0)
+        private set
+    var starMeasure by mutableStateOf<StarMeasure?>(null)
+        private set
+    /** HFR attuale (mediana degli ultimi 3 fotogrammi) e migliore della sessione; 0 = nessuno. */
+    var hfrNow by mutableFloatStateOf(0f)
+        private set
+    var hfrBest by mutableFloatStateOf(0f)
+        private set
+    var hfrHistory by mutableStateOf<List<Float>>(emptyList())
+        private set
+    var focusMoving by mutableStateOf(false)
+        private set
+    @Volatile private var tapHint: FloatArray? = null
+    @Volatile private var resetStar = false
+    private var recenterJob: Job? = null
     var autofocus by mutableStateOf(true)
     var focusing by mutableStateOf(false)
         private set
@@ -374,6 +397,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         liveFrame = null
         hasFrame = false
         lvStats = ""
+        starAssist = false
+        zoomIndex = 0
+        starMeasure = null
         intervalRunning = false
         seqPhase = SeqPhase.IDLE
         downloading = false
@@ -528,6 +554,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             liveFrame = null
             hasFrame = false
             lvStats = ""
+            starAssist = false
+            zoomIndex = 0
+            starMeasure = null
+            recenterJob?.cancel()
             net.lowLatency(false)
             viewModelScope.launch(Dispatchers.IO) { runCatching { cam.stopLiveView() } }
             return
@@ -585,6 +615,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         var count = 0
         var delaySum = 0L
         var windowStart = SystemClock.elapsedRealtime()
+        // inseguimento della stella tra un fotogramma e l'altro
+        var hx = 0f
+        var hy = 0f
+        var hasHint = false
+        var lost = 0
+        val hist = ArrayDeque<Float>()
         for (f in frames) {
             val jpg = f.jpg
             val opts = BitmapFactory.Options().apply {
@@ -601,6 +637,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             pool[turn] = bmp
             turn = (turn + 1) % pool.size
             if (!liveOn) continue
+            if (starAssist) {
+                if (resetStar) {
+                    resetStar = false
+                    hasHint = false
+                    hist.clear()
+                    hfrBest = 0f
+                }
+                tapHint?.let {
+                    tapHint = null
+                    hx = it[0] * bmp.width
+                    hy = it[1] * bmp.height
+                    hasHint = true
+                    hist.clear()
+                    hfrBest = 0f
+                }
+                val m = StarMeter.measure(bmp, hx, hy, hasHint)
+                if (m != null) {
+                    hx = m.x
+                    hy = m.y
+                    hasHint = true
+                    lost = 0
+                    hist.addLast(m.hfr)
+                    while (hist.size > 90) hist.removeFirst()
+                    val last = hist.toList().takeLast(3).sorted()
+                    hfrNow = last[last.size / 2]
+                    if (hist.size >= 3 && (hfrBest == 0f || hfrNow < hfrBest)) hfrBest = hfrNow
+                    hfrHistory = hist.toList()
+                } else if (++lost > 8) {
+                    // stella persa: si torna a cercare la più luminosa al centro
+                    hasHint = false
+                    hfrNow = 0f
+                }
+                starMeasure = m
+            }
             liveFrame = bmp.asImageBitmap()
             if (!hasFrame) hasFrame = true
 
@@ -615,6 +685,84 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 delaySum = 0
                 windowStart = now
             }
+        }
+    }
+
+    // ---------------------------------------------------------------- messa a fuoco sulle stelle
+
+    fun toggleStarAssist() {
+        if (starAssist) {
+            starAssist = false
+            starMeasure = null
+            recenterJob?.cancel()
+            if (zoomIndex != 0) setZoom(0)
+        } else {
+            resetStar = true
+            hfrNow = 0f
+            hfrBest = 0f
+            hfrHistory = emptyList()
+            starAssist = true
+        }
+    }
+
+    /** Ingrandimento della fotocamera; con [cx], [cy] il riquadro si sposta sul punto toccato. */
+    fun setZoom(index: Int, cx: Float? = null, cy: Float? = null) {
+        val cam = camera ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = try { cam.liveZoom(index, cx, cy) } catch (e: Exception) { log("Zoom fallito: ${e.message}"); false }
+            if (!ok) return@launch
+            withContext(Dispatchers.Main) { zoomIndex = index }
+            resetStar = true
+            if (index > 0 && cx != null && cam.caps.zoomPosition) recenter(cam)
+        }
+    }
+
+    /**
+     * Dopo lo zoom sul punto toccato: se la stella non è al centro del riquadro lo si sposta,
+     * così il risultato è giusto anche se le coordinate della fotocamera non tornano del tutto.
+     */
+    private fun recenter(cam: CameraDriver) {
+        recenterJob?.cancel()
+        recenterJob = viewModelScope.launch(Dispatchers.IO) {
+            repeat(2) {
+                delay(1400)
+                val m = starMeasure ?: return@launch
+                val dx = m.x / m.frameW - 0.5f
+                val dy = m.y / m.frameH - 0.5f
+                if (kotlin.math.abs(dx) < 0.07f && kotlin.math.abs(dy) < 0.07f) return@launch
+                if (!runCatching { cam.panZoom(dx, dy) }.getOrDefault(false)) return@launch
+                resetStar = true
+            }
+        }
+    }
+
+    /** Tocco sul mirino in modalità stelle: [fx], [fy] da 0 a 1 sull'immagine. */
+    fun tapViewfinder(fx: Float, fy: Float) {
+        val c = caps
+        if (zoomIndex == 0 && c.zoomPosition && c.zoomLevels.size > 1) {
+            setZoom(1, fx, fy)
+        } else {
+            tapHint = floatArrayOf(fx, fy)
+        }
+    }
+
+    /** Trascinamento sul mirino ingrandito: sposta il riquadro della fotocamera. */
+    fun dragZoom(dx: Float, dy: Float) {
+        val cam = camera ?: return
+        recenterJob?.cancel()
+        viewModelScope.launch(Dispatchers.IO) {
+            if (runCatching { cam.panZoom(dx, dy) }.getOrDefault(false)) resetStar = true
+        }
+    }
+
+    fun focusStep(step: Int) {
+        val cam = camera ?: return
+        if (focusMoving) return
+        focusMoving = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = runCatching { cam.focusDrive(step) }.getOrDefault(false)
+            if (!ok) log("Messa a fuoco a passi non riuscita: obiettivo su AF e live view acceso?")
+            withContext(Dispatchers.Main) { focusMoving = false }
         }
     }
 

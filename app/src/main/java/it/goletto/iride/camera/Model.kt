@@ -59,6 +59,12 @@ data class Capabilities(
     val autofocusButton: Boolean = false,
     /** La fotocamera può inviare il live view in dimensioni diverse. */
     val liveViewQuality: Boolean = false,
+    /** Ingrandimenti del live view fatti dalla fotocamera (es. 1×, 5×, 10×); vuoto = solo zoom dell'app. */
+    val zoomLevels: List<String> = emptyList(),
+    /** Il riquadro di ingrandimento si può spostare su un punto toccato e trascinare. */
+    val zoomPosition: Boolean = false,
+    /** Messa a fuoco a passi dal telefono (motore dell'obiettivo). */
+    val focusDrive: Boolean = false,
 )
 
 enum class Shot { OK, BUSY, FAILED }
@@ -129,6 +135,18 @@ interface CameraDriver : Closeable {
 
     /** Dimensione del live view, applicata al prossimo avvio. */
     fun setLiveViewQuality(q: LvQuality) = Unit
+
+    /**
+     * Ingrandimento del live view fatto dalla fotocamera: [level] è l'indice in [Capabilities.zoomLevels].
+     * Se [cx], [cy] (0..1 sull'inquadratura intera) sono valorizzati, il riquadro si centra lì.
+     */
+    fun liveZoom(level: Int, cx: Float? = null, cy: Float? = null): Boolean = false
+
+    /** Sposta il riquadro ingrandito di una frazione della vista attuale (positivo = destra/basso). */
+    fun panZoom(dx: Float, dy: Float): Boolean = false
+
+    /** Un passo di messa a fuoco: -3..-1 verso il vicino, 1..3 verso l'infinito (3 = passo grande). */
+    fun focusDrive(step: Int): Boolean = false
 }
 
 /** Utilità comuni per estrarre un JPEG da un blocco di dati (live view di molte marche). */

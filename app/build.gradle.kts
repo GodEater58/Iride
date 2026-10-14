@@ -11,8 +11,8 @@ android {
         applicationId = "it.goletto.iride"
         minSdk = 29
         targetSdk = 34
-        versionCode = 10
-        versionName = "0.6"
+        versionCode = 11
+        versionName = "0.7"
     }
 
     signingConfigs {

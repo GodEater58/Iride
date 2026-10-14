@@ -54,7 +54,19 @@ class NikonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
 
     override fun initialize() {
         super.initialize()
+        // ingrandimenti del live view: i valori cambiano da modello a modello, si usano
+        // il minimo, uno intermedio e il massimo tra quelli ammessi
+        zoomValues = getPropDesc(LV_ZOOM)?.takeIf { it.writable }?.values?.sorted().orEmpty().let { v ->
+            if (v.size >= 3) listOf(v.first(), v[v.size / 2], v.last()) else v
+        }
+        zoomType = getPropDesc(LV_ZOOM)?.type ?: 2
         caps = Capabilities(
+            zoomLevels = when (zoomValues.size) {
+                3 -> listOf("Intero", "Medio", "Massimo")
+                2 -> listOf("Intero", "Massimo")
+                else -> emptyList()
+            },
+            focusDrive = NikonOp.MF_DRIVE in ops,
             liveViewQuality = LV_SIZE in info.properties,
             autofocusButton = NikonOp.AF_DRIVE in ops,
             liveView = NikonOp.START_LIVE_VIEW in ops,
@@ -97,6 +109,24 @@ class NikonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
         pollCount++
         if (exposureDirty || pollCount % 8 == 0) refreshExposure()
         return added.distinct().mapNotNull { objectInfo(it) }
+    }
+
+    private var zoomValues: List<Long> = emptyList()
+    private var zoomType = 2
+
+    override fun liveZoom(level: Int, cx: Float?, cy: Float?): Boolean {
+        val v = zoomValues.getOrNull(level) ?: return false
+        return setPropValue(LV_ZOOM, zoomType, v)
+    }
+
+    override fun focusDrive(step: Int): Boolean {
+        if (NikonOp.MF_DRIVE !in ops || step == 0) return false
+        // direzione 1 = vicino, 2 = infinito; ampiezza in passi del motore (come libgphoto2 "manualfocusdrive")
+        val amount = when (kotlin.math.abs(step)) { 1 -> 20; 2 -> 120; else -> 600 }
+        val r = ptp.transaction(NikonOp.MF_DRIVE, intArrayOf(if (step < 0) 1 else 2, amount))
+        if (r.code == MF_STEP_END) log("Messa a fuoco: fine corsa dell'obiettivo")
+        waitReady(3000)
+        return r.ok
     }
 
     /** Attende che la fotocamera non sia più occupata (DeviceReady). */
@@ -191,5 +221,7 @@ class NikonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
     companion object {
         /** Dimensione del live view sui Nikon recenti (libgphoto2: PTP_DPC_NIKON_LiveViewImageSize). */
         private const val LV_SIZE = 0xD1AC
+        private const val LV_ZOOM = 0xD1A3          // LiveViewImageZoomRatio
+        private const val MF_STEP_END = 0xA00C      // MfDriveStepEnd
     }
 }

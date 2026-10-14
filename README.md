@@ -1,6 +1,6 @@
 # Iride
 
-App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più completa alle app dei produttori (Camera Connect, SnapBridge, Imaging Edge…). Versione attuale: **0.6**.
+App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più completa alle app dei produttori (Camera Connect, SnapBridge, Imaging Edge…). Versione attuale: **0.7**.
 
 ## Marche supportate
 
@@ -27,6 +27,7 @@ App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più
 | Parametri di scatto | Tempo, diaframma, ISO, compensazione, bilanciamento del bianco e modo, modificabili dal telefono quando la fotocamera lo consente |
 | Scatto remoto | Pulsante a diaframma animato, autofocus allo scatto attivabile |
 | Messa a fuoco | Tasto «Metti a fuoco» e pulsante «AF» sul mirino, con esito verde/rosso |
+| Messa a fuoco sulle stelle | Tasto «Stelle»: misura HFR con grafico, zoom 5×/10× della fotocamera sul punto toccato (Canon), passi di messa a fuoco dal telefono (Canon, Nikon, Sony) |
 | Live view | Fluido / Bilanciato / Dettaglio, indicatore fps e ritardo, griglia dei terzi, pizzica per zoom, doppio tocco 4× |
 | Intervallometro | Preset, numero scatti, pausa, posa B oltre i 30 s, durata stimata |
 | Galleria | Letta all'apertura, raggruppata per giorno, filtro RAW/JPG, anteprima, selezione multipla |

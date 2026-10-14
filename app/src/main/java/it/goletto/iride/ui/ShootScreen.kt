@@ -21,6 +21,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -133,8 +134,10 @@ private fun Viewfinder(vm: MainViewModel) {
     var offset by remember { mutableStateOf(Offset.Zero) }
     // il fotogramma si legge solo nella fase di disegno (LiveImage): qui basta sapere se c'è
     val hasFrame = vm.hasFrame
-    LaunchedEffect(vm.liveOn) {
-        if (!vm.liveOn) {
+    val assist = vm.starAssist
+    LaunchedEffect(vm.liveOn, assist) {
+        // in modalità stelle si usa lo zoom della fotocamera, non quello dell'app
+        if (!vm.liveOn || assist) {
             scale = 1f
             offset = Offset.Zero
         }
@@ -153,36 +156,61 @@ private fun Viewfinder(vm: MainViewModel) {
                 vm,
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val s = (scale * zoom).coerceIn(1f, 8f)
-                            val maxX = (wPx * (s - 1f)) / 2f
-                            val maxY = (hPx * (s - 1f)) / 2f
-                            val o = offset + pan
-                            scale = s
-                            offset = Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
-                        }
-                    }
-                    .pointerInput(Unit) {
-                        detectTapGestures(onDoubleTap = { tap ->
-                            if (scale > 1.01f) {
-                                scale = 1f
-                                offset = Offset.Zero
-                            } else {
-                                // ingrandisce 4× sul punto toccato: utile per mettere a fuoco una stella
-                                val s = 4f
-                                val cx = wPx / 2f
-                                val cy = hPx / 2f
-                                val maxX = (wPx * (s - 1f)) / 2f
-                                val maxY = (hPx * (s - 1f)) / 2f
-                                scale = s
-                                offset = Offset(
-                                    ((cx - tap.x) * s).coerceIn(-maxX, maxX),
-                                    ((cy - tap.y) * s).coerceIn(-maxY, maxY),
-                                )
-                            }
-                        })
-                    }
+                    .then(
+                        if (assist) {
+                            Modifier
+                                .pointerInput(assist) {
+                                    detectTapGestures(onTap = { tap ->
+                                        imageFraction(vm, tap, wPx, hPx)?.let { (fx, fy) -> vm.tapViewfinder(fx, fy) }
+                                    })
+                                }
+                                .pointerInput(assist) {
+                                    // trascinando sul mirino ingrandito si sposta il riquadro della fotocamera
+                                    var total = Offset.Zero
+                                    detectDragGestures(
+                                        onDragStart = { total = Offset.Zero },
+                                        onDragEnd = {
+                                            if (vm.zoomIndex > 0 && vm.caps.zoomPosition) vm.dragZoom(-total.x / wPx, -total.y / hPx)
+                                        },
+                                    ) { change, drag ->
+                                        change.consume()
+                                        total += drag
+                                    }
+                                }
+                        } else {
+                            Modifier
+                                .pointerInput(assist) {
+                                    detectTransformGestures { _, pan, zoom, _ ->
+                                        val s = (scale * zoom).coerceIn(1f, 8f)
+                                        val maxX = (wPx * (s - 1f)) / 2f
+                                        val maxY = (hPx * (s - 1f)) / 2f
+                                        val o = offset + pan
+                                        scale = s
+                                        offset = Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
+                                    }
+                                }
+                                .pointerInput(assist) {
+                                    detectTapGestures(onDoubleTap = { tap ->
+                                        if (scale > 1.01f) {
+                                            scale = 1f
+                                            offset = Offset.Zero
+                                        } else {
+                                            // ingrandisce 4× sul punto toccato (zoom dell'app)
+                                            val s = 4f
+                                            val cx = wPx / 2f
+                                            val cy = hPx / 2f
+                                            val maxX = (wPx * (s - 1f)) / 2f
+                                            val maxY = (hPx * (s - 1f)) / 2f
+                                            scale = s
+                                            offset = Offset(
+                                                ((cx - tap.x) * s).coerceIn(-maxX, maxX),
+                                                ((cy - tap.y) * s).coerceIn(-maxY, maxY),
+                                            )
+                                        }
+                                    })
+                                }
+                        },
+                    )
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
@@ -238,20 +266,34 @@ private fun Viewfinder(vm: MainViewModel) {
                     .padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
-        if (hasFrame && vm.caps.autofocusButton) {
-            Row(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .clickable(enabled = !vm.focusing, role = Role.Button, onClick = vm::focus)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(IrideIcons.Focus, null, tint = if (vm.focusing) p.lcd else Color.White, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(if (vm.focusing) "Fuoco…" else "AF", style = MaterialTheme.typography.labelMedium, color = Color.White)
+        if (hasFrame) {
+            Row(Modifier.align(Alignment.BottomStart).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (vm.caps.autofocusButton) {
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .clickable(enabled = !vm.focusing, role = Role.Button, onClick = vm::focus)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(IrideIcons.Focus, null, tint = if (vm.focusing) p.lcd else Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (vm.focusing) "Fuoco…" else "AF", style = MaterialTheme.typography.labelMedium, color = Color.White)
+                    }
+                }
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (assist) p.lcd else Color.Black.copy(alpha = 0.5f))
+                        .clickable(role = Role.Switch, onClick = vm::toggleStarAssist)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(IrideIcons.Star, null, tint = if (assist) p.onLcd else Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Stelle", style = MaterialTheme.typography.labelMedium, color = if (assist) p.onLcd else Color.White)
+                }
             }
         }
         if (hasFrame) {
@@ -273,6 +315,10 @@ private fun Viewfinder(vm: MainViewModel) {
                 )
             }
         }
+    }
+    if (assist && hasFrame) {
+        StarFocusPanel(vm)
+        return
     }
     if (vm.caps.liveViewQuality) {
         Row(
@@ -316,6 +362,142 @@ private fun Viewfinder(vm: MainViewModel) {
     }
 }
 
+/** Punto toccato → frazione (0..1) dell'immagine, tenendo conto delle bande nere ai lati. */
+private fun imageFraction(vm: MainViewModel, tap: Offset, w: Float, h: Float): Pair<Float, Float>? {
+    val img = vm.liveFrame ?: return null
+    val k = minOf(w / img.width, h / img.height)
+    val dw = img.width * k
+    val dh = img.height * k
+    val fx = (tap.x - (w - dw) / 2f) / dw
+    val fy = (tap.y - (h - dh) / 2f) / dh
+    if (fx !in 0f..1f || fy !in 0f..1f) return null
+    return fx to fy
+}
+
+/** Pannello dell'assistente: dimensione della stella, grafico, ingrandimento e passi di messa a fuoco. */
+@Composable
+private fun StarFocusPanel(vm: MainViewModel) {
+    val p = LocalIride.current
+    val now = vm.hfrNow
+    val best = vm.hfrBest
+    val good = now > 0f && best > 0f && now <= best * 1.05f
+    val m = vm.starMeasure
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(p.raised)
+            .padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f)) {
+                Text("Dimensione stella (HFR)", style = MaterialTheme.typography.labelSmall, color = p.muted)
+                Text(
+                    if (now > 0f) String.format(Locale.ITALY, "%.2f", now) else "–",
+                    style = readout(40),
+                    color = if (good) Color(0xFF4CD964) else p.lcd,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Migliore", style = MaterialTheme.typography.labelSmall, color = p.muted)
+                Text(if (best > 0f) String.format(Locale.ITALY, "%.2f", best) else "–", style = readout(22), color = p.text)
+            }
+        }
+        // andamento: si cerca il punto più basso
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(vertical = 6.dp),
+        ) {
+            val h = vm.hfrHistory
+            if (h.size < 2) return@Canvas
+            val lo = h.min()
+            val hi = maxOf(h.max(), lo + 0.5f)
+            val stepX = size.width / (90 - 1)
+            fun yOf(v: Float) = size.height - (v - lo) / (hi - lo) * size.height
+            val b = vm.hfrBest
+            if (b > 0f) drawLine(Color(0xFF4CD964).copy(alpha = 0.5f), Offset(0f, yOf(b)), Offset(size.width, yOf(b)), 1.dp.toPx())
+            for (i in 1 until h.size) {
+                drawLine(p.lcd, Offset((i - 1) * stepX, yOf(h[i - 1])), Offset(i * stepX, yOf(h[i])), 2.dp.toPx(), cap = StrokeCap.Round)
+            }
+        }
+        Text(
+            when {
+                m == null -> "Nessuna stella: tocca una stella luminosa nel mirino"
+                m.saturated -> "Stella satura: abbassa ISO o tempo per una misura più precisa"
+                good -> "A fuoco: è il valore migliore finora"
+                else -> "Gira la messa a fuoco finché il numero scende al minimo"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (m == null) p.muted else p.text,
+        )
+
+        val levels = vm.caps.zoomLevels
+        if (levels.size > 1) {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(p.body)
+                    .padding(3.dp),
+            ) {
+                levels.forEachIndexed { i, label ->
+                    val sel = i == vm.zoomIndex
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (sel) p.lcd else Color.Transparent)
+                            .clickable(role = Role.RadioButton) { vm.setZoom(i) }
+                            .padding(vertical = 7.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = if (sel) p.onLcd else p.text)
+                    }
+                }
+            }
+        }
+
+        if (vm.caps.focusDrive) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth()) {
+                Text("◂ Vicino", style = MaterialTheme.typography.labelSmall, color = p.muted, modifier = Modifier.weight(1f))
+                Text("Infinito ▸", style = MaterialTheme.typography.labelSmall, color = p.muted)
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(-3 to "‹‹‹", -2 to "‹‹", -1 to "‹", 1 to "›", 2 to "››", 3 to "›››").forEach { (step, label) ->
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, p.groove, RoundedCornerShape(12.dp))
+                            .clickable(enabled = !vm.focusMoving, role = Role.Button) { vm.focusStep(step) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, style = readout(20), color = if (vm.focusMoving) p.muted else p.text)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            buildString {
+                if (vm.caps.zoomPosition) append("Tocca una stella: la fotocamera ingrandisce lì. Trascina per spostare il riquadro, tocca per scegliere un'altra stella. ")
+                else append("Tocca una stella per misurarla. ")
+                if (vm.caps.focusDrive) append("Per i tasti di messa a fuoco l'obiettivo deve essere su AF.")
+                else append("Metti a fuoco con la ghiera dell'obiettivo.")
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = p.muted,
+        )
+    }
+}
+
 /**
  * Il fotogramma del live view. Lo stato viene letto dentro drawBehind: a ogni fotogramma
  * si ridisegna solo questo riquadro, senza ricomporre né rimisurare il mirino.
@@ -332,12 +514,26 @@ private fun LiveImage(vm: MainViewModel, modifier: Modifier) {
                 val k = minOf(size.width / iw, size.height / ih)
                 val dw = (iw * k).roundToInt()
                 val dh = (ih * k).roundToInt()
+                val ox = ((size.width - dw) / 2f).roundToInt()
+                val oy = ((size.height - dh) / 2f).roundToInt()
                 drawImage(
                     img,
-                    dstOffset = IntOffset(((size.width - dw) / 2f).roundToInt(), ((size.height - dh) / 2f).roundToInt()),
+                    dstOffset = IntOffset(ox, oy),
                     dstSize = IntSize(dw, dh),
                     filterQuality = FilterQuality.Low,
                 )
+                if (vm.starAssist) {
+                    // stella inseguita: cerchio verde se è al meglio della sessione
+                    val m = vm.starMeasure
+                    if (m != null) {
+                        val sx = ox + m.x * dw / m.frameW
+                        val sy = oy + m.y * dh / m.frameH
+                        val best = vm.hfrBest
+                        val good = best > 0f && vm.hfrNow <= best * 1.05f
+                        val rad = maxOf(14.dp.toPx(), m.hfr * 3f * dw / m.frameW)
+                        drawCircle(if (good) Color(0xFF4CD964) else Color(0xFFF3A83B), rad, Offset(sx, sy), style = Stroke(2.dp.toPx()))
+                    }
+                }
             },
     )
 }

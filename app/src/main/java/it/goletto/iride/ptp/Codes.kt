@@ -46,6 +46,10 @@ object PtpOp {
     const val CANON_GET_VIEWFINDER = 0x9153
     const val CANON_DO_AF = 0x9154
     const val CANON_AF_CANCEL = 0x9160
+    // messa a fuoco manuale e ingrandimento del live view (libgphoto2: DriveLens, Zoom, ZoomPosition)
+    const val CANON_DRIVE_LENS = 0x9155
+    const val CANON_ZOOM = 0x9158
+    const val CANON_ZOOM_POSITION = 0x9159
 }
 
 /** Estensioni Nikon (codici da libgphoto2, camlibs/ptp2/ptp.h). */
@@ -59,6 +63,7 @@ object NikonOp {
     const val GET_LIVE_VIEW_IMG = 0x9203
     const val CAPTURE_REC_IN_MEDIA = 0x9207
     const val TERMINATE_CAPTURE = 0x920C
+    const val MF_DRIVE = 0x9204
 }
 
 /** Estensioni Sony "SDIO" (codici da libgphoto2). */

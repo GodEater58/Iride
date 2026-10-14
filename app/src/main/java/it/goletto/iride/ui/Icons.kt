@@ -101,6 +101,8 @@ object IrideIcons {
 
     val Minus = stroked("minus", 2.2f, "M6,12h12")
 
+    val Star = filled("star", "M12,2.5L13.9,10.1L21.5,12L13.9,13.9L12,21.5L10.1,13.9L2.5,12L10.1,10.1Z")
+
     val Usb = stroked(
         "usb", 1.7f,
         "M12,19V3.5", "M9.8,5.7L12,3.5l2.2,2.2",

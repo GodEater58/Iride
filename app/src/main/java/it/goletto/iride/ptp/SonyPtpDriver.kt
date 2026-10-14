@@ -28,6 +28,7 @@ class SonyPtpDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, l
     override val caps = Capabilities(
         cardBrowsing = false,
         autofocusButton = true,
+        focusDrive = true,
         galleryNote = "Con le Sony in modalità PC remoto le foto arrivano sul telefono appena scattate. Per tenere una copia anche sulla scheda, imposta sulla fotocamera la destinazione di salvataggio «PC + fotocamera».",
     )
 
@@ -202,6 +203,13 @@ class SonyPtpDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, l
         control(SONY_SHUTTER_HALF, 1)
     }
 
+    /** Messa a fuoco manuale (proprietà ManualFocusAdjust, valori ±1..±7): funziona con la fotocamera in MF. */
+    override fun focusDrive(step: Int): Boolean {
+        if (step == 0) return false
+        val size = when (kotlin.math.abs(step)) { 1 -> 1; 2 -> 3; else -> 7 }
+        return control(MANUAL_FOCUS_ADJUST, if (step < 0) -size else size) == PtpResp.OK
+    }
+
     override fun startLiveView() = Unit
     override fun stopLiveView() = Unit
 
@@ -228,6 +236,7 @@ class SonyPtpDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, l
         const val SONY_PRIORITY_MODE = 0xD25A
         const val SONY_SHUTTER_HALF = 0xD2C1
         const val SONY_SHUTTER_FULL = 0xD2C2
+        const val MANUAL_FOCUS_ADJUST = 0xD2D1
         const val SONY_CAPTURED_OBJECT = -0x3FFF // 0xFFFFC001
         const val SONY_LIVE_VIEW_OBJECT = -0x3FFE // 0xFFFFC002
     }
