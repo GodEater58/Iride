@@ -95,15 +95,24 @@ class PanasonicDriver(
         val sock = net.udp(LIVE_PORT)
         sock.soTimeout = 2000
         udp = sock
-        cam("mode=startstream&value=$LIVE_PORT")
+        try {
+            cam("mode=startstream&value=$LIVE_PORT")
+        } catch (e: Exception) {
+            // senza chiudere la porta, il tentativo successivo non potrebbe riaprirla
+            udp = null
+            runCatching { sock.close() }
+            throw e
+        }
         thread(isDaemon = true, name = "lumix-liveview") {
             val buf = ByteArray(65536)
             while (udp === sock) {
                 val pkt = DatagramPacket(buf, buf.size)
                 try {
                     sock.receive(pkt)
-                } catch (e: Exception) {
+                } catch (e: java.net.SocketTimeoutException) {
                     continue
+                } catch (e: Exception) {
+                    break
                 }
                 // ogni datagramma contiene un'intestazione seguita da un JPEG completo
                 latest = extractJpeg(buf.copyOf(pkt.length))

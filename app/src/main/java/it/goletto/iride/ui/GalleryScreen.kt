@@ -48,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -74,12 +75,18 @@ private val FOLDERS = listOf("" to "Cartella principale", "Light" to "Light", "D
 private val dayIn = SimpleDateFormat("yyyyMMdd", Locale.ROOT)
 private val dayOut = SimpleDateFormat("EEEE d MMMM yyyy", Locale.ITALY)
 
+private val dayCache = HashMap<String, String>()
+
+/** Etichetta del giorno; le date si ripetono molto, quindi si calcola una volta per giorno. */
 private fun dayLabel(captureDate: String): String {
     if (captureDate.length < 8) return "Data sconosciuta"
-    return try {
-        dayOut.format(dayIn.parse(captureDate.substring(0, 8))!!).replaceFirstChar { it.uppercase() }
-    } catch (e: Exception) {
-        "Data sconosciuta"
+    val key = captureDate.substring(0, 8)
+    return dayCache.getOrPut(key) {
+        try {
+            dayOut.format(dayIn.parse(key)!!).replaceFirstChar { it.uppercase() }
+        } catch (e: Exception) {
+            "Data sconosciuta"
+        }
     }
 }
 
@@ -99,12 +106,18 @@ fun GalleryScreen(vm: MainViewModel) {
     var preview by remember { mutableStateOf<CamFile?>(null) }
 
     val all = vm.files
-    val shown = when (filter) {
-        Filter.ALL -> all.toList()
-        Filter.RAW -> all.filter { it.isRaw }
-        Filter.JPG -> all.filter { it.isJpeg }
+    // ricalcolati solo quando cambiano i file o il filtro, non a ogni selezione o avanzamento
+    val shown by remember(filter) {
+        derivedStateOf {
+            when (filter) {
+                Filter.ALL -> all.toList()
+                Filter.RAW -> all.filter { it.isRaw }
+                Filter.JPG -> all.filter { it.isJpeg }
+            }
+        }
     }
-    val groups = shown.groupBy { dayLabel(it.captureDate) }
+    val groups by remember { derivedStateOf { shown.groupBy { dayLabel(it.captureDate) } } }
+    val counts by remember { derivedStateOf { Triple(all.size, all.count { it.isRaw }, all.count { it.isJpeg }) } }
 
     Column(Modifier.fillMaxSize()) {
         // intestazione
@@ -149,9 +162,9 @@ fun GalleryScreen(vm: MainViewModel) {
         ) {
             Filter.entries.forEach { f ->
                 val n = when (f) {
-                    Filter.ALL -> all.size
-                    Filter.RAW -> all.count { it.isRaw }
-                    Filter.JPG -> all.count { it.isJpeg }
+                    Filter.ALL -> counts.first
+                    Filter.RAW -> counts.second
+                    Filter.JPG -> counts.third
                 }
                 val sel = f == filter
                 val bg by animateColorAsState(if (sel) p.lcd else Color.Transparent, label = "fbg")
@@ -258,7 +271,8 @@ private fun EmptyGallery(vm: MainViewModel, filtered: Boolean) {
 @Composable
 private fun Tile(vm: MainViewModel, f: CamFile, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val p = LocalIride.current
-    LaunchedEffect(f.id) { vm.loadThumb(f) }
+    val hasThumb = vm.thumbs.containsKey(f.id)
+    LaunchedEffect(f.id, hasThumb) { if (!hasThumb) vm.loadThumb(f) }
     val inset by animateFloatAsState(if (selected) 0.88f else 1f, tween(160), label = "inset")
     Box(
         Modifier

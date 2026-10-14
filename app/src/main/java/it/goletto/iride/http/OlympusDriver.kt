@@ -209,8 +209,15 @@ class OlympusDriver(
             LvQuality.BALANCED -> "0640x0480"
             LvQuality.DETAIL -> "0800x0600"
         }
-        switchMode("rec", mapOf("lvqty" to lvqty))
-        get("exec_takemisc", mapOf("com" to "startliveview", "port" to port.toString()))
+        try {
+            switchMode("rec", mapOf("lvqty" to lvqty))
+            get("exec_takemisc", mapOf("com" to "startliveview", "port" to port.toString()))
+        } catch (e: Exception) {
+            // senza chiudere la porta, il tentativo successivo non potrebbe riaprirla
+            udp = null
+            runCatching { sock.close() }
+            throw e
+        }
         liveOn = true
         thread(isDaemon = true, name = "olympus-liveview") { receive(sock) }
         Unit
@@ -223,8 +230,10 @@ class OlympusDriver(
             val pkt = DatagramPacket(buf, buf.size)
             try {
                 sock.receive(pkt)
-            } catch (e: Exception) {
+            } catch (e: java.net.SocketTimeoutException) {
                 continue
+            } catch (e: Exception) {
+                break
             }
             val d = buf
             val len = pkt.length

@@ -118,6 +118,13 @@ class PtpUsbClient(
         try {
             if (!isOpen) throw PtpException("Non connesso")
             return doTransaction(op, params, dataOut, sink, onProgress)
+        } catch (e: IOException) {
+            // flusso USB disallineato: la sessione non è più affidabile
+            if (isOpen && e.message != "Non connesso") {
+                isOpen = false
+                log("Collegamento USB interrotto: ${e.message}")
+            }
+            throw e
         } finally {
             lock.unlock()
         }

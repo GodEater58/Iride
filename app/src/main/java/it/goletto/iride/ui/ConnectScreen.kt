@@ -249,17 +249,9 @@ private fun UsbCard(vm: MainViewModel) {
 @Composable
 private fun HeroIris(busy: Boolean, error: Boolean) {
     val p = LocalIride.current
-    val t = rememberInfiniteTransition(label = "hero")
-    val spin by t.animateFloat(
-        0f, (2 * Math.PI).toFloat(),
-        infiniteRepeatable(tween(9000, easing = LinearEasing)),
-        label = "spin",
-    )
-    val breathe by t.animateFloat(
-        0.15f, 0.9f,
-        infiniteRepeatable(tween(1400), RepeatMode.Reverse),
-        label = "breathe",
-    )
+    // animazioni solo durante il collegamento: a riposo lo schermo resta fermo
+    val spin by rememberLoop(busy, 0f, (2 * Math.PI).toFloat(), 9000)
+    val breathe by rememberLoop(busy, 0.15f, 0.9f, 1400, reverse = true)
     val rest by animateFloatAsState(if (error) 0.05f else 0.72f, tween(700), label = "rest")
     val edge by animateColorAsState(if (error) p.exposure else p.lcd, label = "edge")
     Box(

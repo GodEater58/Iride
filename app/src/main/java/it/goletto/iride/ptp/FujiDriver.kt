@@ -147,6 +147,21 @@ class FujiDriver(
      * l'ultimo pacchetto porta il codice di risposta.
      */
     private fun op(code: Int, p1: Int, dataValue: Int? = null, multi: Boolean = false): Pair<Int, ByteArray> = synchronized(lock) {
+        try {
+            opLocked(code, p1, dataValue, multi)
+        } catch (e: IOException) {
+            // errore di rete a metà operazione: il flusso non è più allineato, si chiude
+            if (e !is PtpException && open) {
+                open = false
+                log("Collegamento interrotto: ${e.message}")
+                runCatching { cmd?.close() }
+                runCatching { evt?.close() }
+            }
+            throw e
+        }
+    }
+
+    private fun opLocked(code: Int, p1: Int, dataValue: Int?, multi: Boolean): Pair<Int, ByteArray> {
         val out = cmdOut ?: throw PtpException("Non connesso")
         val inp = cmdIn ?: throw PtpException("Non connesso")
         val t = ++tid

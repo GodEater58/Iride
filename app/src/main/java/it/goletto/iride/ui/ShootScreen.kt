@@ -541,8 +541,7 @@ private fun LiveImage(vm: MainViewModel, modifier: Modifier) {
 @Composable
 private fun ViewfinderIdle(vm: MainViewModel) {
     val p = LocalIride.current
-    val t = rememberInfiniteTransition(label = "lvwait")
-    val breathe by t.animateFloat(0.2f, 0.6f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "b")
+    val breathe by rememberLoop(vm.liveOn, 0.2f, 0.6f, 1100, reverse = true)
     Column(
         Modifier
             .fillMaxSize()
@@ -757,8 +756,7 @@ private fun ShutterButton(vm: MainViewModel) {
         label = "seq",
     )
     val ringColor by animateColorAsState(if (exposing) p.exposure else p.lcd, label = "ring")
-    val spinT = rememberInfiniteTransition(label = "spin")
-    val busySpin by spinT.animateFloat(0f, 360f, infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "bs")
+    val busySpin by rememberLoop(vm.intervalRunning && vm.seqPhase == SeqPhase.BUSY, 0f, 360f, 1200)
 
     Box(
         Modifier
@@ -1031,8 +1029,7 @@ private fun FocusButton(vm: MainViewModel) {
     val p = LocalIride.current
     val enabled = vm.caps.autofocusButton && !vm.intervalRunning
     val src = remember { MutableInteractionSource() }
-    val spinT = rememberInfiniteTransition(label = "af")
-    val spin by spinT.animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "afspin")
+    val spin by rememberLoop(vm.focusing, 0f, 360f, 900)
     val ring by animateColorAsState(
         when (vm.focusResult) {
             true -> p.ok

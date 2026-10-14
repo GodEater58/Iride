@@ -141,6 +141,16 @@ class PtpIpClient(
         lock.lock()
         try {
             return doTransaction(op, params, dataOut, sink, onProgress)
+        } catch (e: IOException) {
+            // un errore a metà transazione lascia il flusso disallineato: le risposte successive
+            // sarebbero sbagliate. Si chiude subito, così tutto fallisce in modo chiaro.
+            if (isOpen) {
+                isOpen = false
+                log("Collegamento interrotto: ${e.message}")
+                runCatching { cmdSocket?.close() }
+                runCatching { evtSocket?.close() }
+            }
+            throw e
         } finally {
             lock.unlock()
         }

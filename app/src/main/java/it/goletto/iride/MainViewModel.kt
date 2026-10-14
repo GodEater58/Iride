@@ -46,6 +46,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.BufferedOutputStream
 import java.io.IOException
@@ -57,6 +59,8 @@ import kotlin.concurrent.thread
 import kotlin.math.roundToInt
 
 data class LogLine(val time: String, val text: String, val error: Boolean)
+
+private const val MAX_THUMBS = 400
 
 enum class SeqPhase { IDLE, EXPOSING, WAITING, BUSY }
 
@@ -406,6 +410,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         files.clear()
         thumbs.clear()
         thumbLoading.clear()
+        thumbOrder.clear()
+        thumbFailed.clear()
         selected = emptySet()
         saved = emptySet()
         exposure = ExposureState()
@@ -931,19 +937,46 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun loadThumb(file: CamFile) {
+    // miniature: una richiesta alla volta (il live view non resta in coda) e al massimo
+    // MAX_THUMBS in memoria; quelle di riquadri usciti dallo schermo non vengono più chieste
+    private val thumbGate = Semaphore(1)
+    private val thumbOrder = ArrayDeque<String>()
+    private val thumbFailed = HashSet<String>()
+
+    /** Carica la miniatura; va chiamata dal riquadro (si annulla se il riquadro esce dallo schermo). */
+    suspend fun loadThumb(file: CamFile) {
         val handle = file.id
-        if (thumbs.containsKey(handle) || !thumbLoading.add(handle)) return
-        val cam = camera ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val data = cam.thumbnail(file) ?: return@launch
-                val bmp = BitmapFactory.decodeByteArray(data, 0, data.size) ?: return@launch
-                val ib = bmp.asImageBitmap()
-                withContext(Dispatchers.Main) { thumbs[handle] = ib }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) { thumbLoading.remove(handle) }
+        if (thumbs.containsKey(handle) || handle in thumbFailed || !thumbLoading.add(handle)) return
+        val cam = camera
+        if (cam == null) {
+            thumbLoading.remove(handle)
+            return
+        }
+        try {
+            val ib = thumbGate.withPermit {
+                withContext(Dispatchers.IO) {
+                    val data = cam.thumbnail(file) ?: return@withContext null
+                    // RGB_565: metà memoria, per una miniatura non si vede la differenza
+                    val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }
+                    BitmapFactory.decodeByteArray(data, 0, data.size, opts)?.asImageBitmap()
+                }
             }
+            if (ib == null) {
+                thumbFailed.add(handle)
+            } else if (camera === cam) {
+                thumbs[handle] = ib
+                thumbOrder.addLast(handle)
+                while (thumbOrder.size > MAX_THUMBS) {
+                    val old = thumbOrder.removeFirst()
+                    thumbs.remove(old)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            thumbFailed.add(handle)
+        } finally {
+            thumbLoading.remove(handle)
         }
     }
 

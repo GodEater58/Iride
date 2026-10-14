@@ -36,6 +36,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -179,19 +184,34 @@ fun IconTap(icon: ImageVector, description: String, onClick: () -> Unit, tint: C
     }
 }
 
+/**
+ * Valore animato in ciclo solo quando [active]: da fermo non c'è nessuna animazione in corso,
+ * quindi lo schermo non viene ridisegnato inutilmente (meno batteria, più CPU al live view).
+ */
+@Composable
+fun rememberLoop(active: Boolean, from: Float, to: Float, periodMs: Int, reverse: Boolean = false, rest: Float = from): State<Float> {
+    if (!active) return remember(rest) { mutableFloatStateOf(rest) }
+    val t = rememberInfiniteTransition(label = "loop")
+    return t.animateFloat(
+        from, to,
+        infiniteRepeatable(
+            tween(periodMs, easing = if (reverse) FastOutSlowInEasing else LinearEasing),
+            if (reverse) RepeatMode.Reverse else RepeatMode.Restart,
+        ),
+        label = "loop",
+    )
+}
+
 @Composable
 fun StatusDot(color: Color, pulsing: Boolean, modifier: Modifier = Modifier) {
-    val t = rememberInfiniteTransition(label = "dot")
-    val a by t.animateFloat(
-        0.35f, 1f,
-        infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "dotA",
-    )
+    val a = rememberLoop(pulsing, 0.35f, 1f, 900, reverse = true, rest = 1f)
     Box(
         modifier
             .size(10.dp)
+            // l'opacità si legge nel livello grafico: pulsa senza ricomporre
+            .graphicsLayer { alpha = a.value }
             .clip(CircleShape)
-            .background(color.copy(alpha = if (pulsing) a else 1f))
+            .background(color)
     )
 }
 
