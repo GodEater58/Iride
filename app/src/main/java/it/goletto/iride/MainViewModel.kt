@@ -103,7 +103,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putBoolean("night", night).apply()
     }
 
-    private fun setNight(on: Boolean) {
+    private fun applyNight(on: Boolean) {
         night = on
         prefs.edit().putBoolean("night", night).apply()
     }
@@ -392,7 +392,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun runScene(name: String) {
         viewModelScope.launch {
-            setNight(name == "night")
+            applyNight(name == "night")
             if (name == "connect") {
                 brand = Brand.CANON
                 mode = Mode.HOTSPOT
