@@ -56,6 +56,18 @@ class NikonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
 
     override fun initialize() {
         super.initialize()
+        // Le proprietà proprie Nikon (live view, obiettivo, ingrandimento…) non sono elencate nelle
+        // informazioni del dispositivo: si chiedono a parte con GetVendorPropCodes (come libgphoto2)
+        if (GET_VENDOR_PROP_CODES in ops) {
+            val r = ptp.transaction(GET_VENDOR_PROP_CODES)
+            val extra = if (r.ok) runCatching { Reader(r.data).u16Array().toSet() }.getOrDefault(emptySet()) else emptySet()
+            if (extra.isNotEmpty()) {
+                info = DeviceInfo(info.vendorExtension, info.operations, info.properties + extra, info.manufacturer, info.model)
+                log("Proprietà Nikon aggiuntive: ${extra.size}")
+            }
+        }
+        // modo «controllo da computer», usato da libgphoto2 prima di scatto e live view
+        if (CHANGE_CAMERA_MODE in ops) runCatching { ptp.transaction(CHANGE_CAMERA_MODE, intArrayOf(1)) }
         // ingrandimenti del live view: i valori cambiano da modello a modello, si usano
         // il minimo, uno intermedio e il massimo tra quelli ammessi
         zoomValues = getPropDesc(LV_ZOOM)?.takeIf { it.writable }?.values?.sorted().orEmpty().let { v ->
@@ -212,8 +224,38 @@ class NikonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
             val d = getPropDesc(LV_SIZE)
             if (d != null && d.writable && (d.values.isEmpty() || v in d.values)) setPropValue(LV_SIZE, d.type, v)
         }
-        check(ptp.transaction(NikonOp.START_LIVE_VIEW), "Avvio live view")
+        // già acceso (es. avviato dalla fotocamera): niente da fare
+        if ((getPropDesc(LV_STATUS)?.current ?: 0L) != 0L) return
+        // se la fotocamera lo vieta, si dice perché invece di aspettare fotogrammi che non arrivano
+        val cond = getPropDesc(LV_PROHIBIT)?.current ?: 0L
+        if (cond != 0L && (cond and (1L shl 24)) == 0L) {
+            throw java.io.IOException("la fotocamera non permette il live view: " + prohibitReasons(cond))
+        }
+        val r = ptp.transaction(NikonOp.START_LIVE_VIEW)
+        if (!r.ok && r.code != PtpResp.DEVICE_BUSY) log("Avvio live view: risposta ${hex(r.code)}")
         waitReady(3000)
+    }
+
+    /** Motivi per cui il live view non parte (bit di LiveViewProhibitCondition, da libgphoto2). */
+    private fun prohibitReasons(c: Long): String {
+        val reasons = listOf(
+            31 to "ghiera non su P, A, S o M",
+            21 to "tempo impostato su posa B",
+            8 to "batteria scarica",
+            17 to "temperatura troppo alta",
+            5 to "ghiera dei diaframmi dell'obiettivo non bloccata sul valore minimo",
+            14 to "nessuna scheda o scheda protetta",
+            18 to "scheda protetta",
+            19 to "errore della scheda",
+            20 to "scheda non formattata",
+            22 to "specchio sollevato",
+            15 to "scatto in corso",
+            12 to "foto in memoria non ancora scaricata",
+            4 to "pulsante di scatto premuto",
+            9 to "errore TTL",
+            2 to "errore di sequenza",
+        ).filter { (bit, _) -> (c and (1L shl bit)) != 0L }.map { it.second }
+        return reasons.joinToString(", ").ifEmpty { "codice ${hex(c.toInt())}" }
     }
 
     override fun stopLiveView() {
@@ -240,5 +282,9 @@ class NikonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
         private const val LV_SIZE = 0xD1AC
         private const val LV_ZOOM = 0xD1A3          // LiveViewImageZoomRatio
         private const val MF_STEP_END = 0xA00C      // MfDriveStepEnd
+        private const val LV_STATUS = 0xD1A2        // LiveViewStatus
+        private const val LV_PROHIBIT = 0xD1A4      // LiveViewProhibitCondition
+        private const val GET_VENDOR_PROP_CODES = 0x90CA
+        private const val CHANGE_CAMERA_MODE = 0x90C2
     }
 }

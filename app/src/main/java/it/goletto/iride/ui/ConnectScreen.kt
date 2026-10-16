@@ -367,7 +367,7 @@ private fun ssidHint(b: Brand): String = when (b) {
 
 private fun firstStep(b: Brand): String = when (b) {
     Brand.CANON -> "Menu Wi-Fi → Attiva, poi scegli la funzione Smartphone."
-    Brand.NIKON -> "Attiva il Wi-Fi della fotocamera nella modalità di collegamento a uno smartphone o a un computer."
+    Brand.NIKON -> "Nikon con Wi-Fi integrato (D7200, D750, D5300…): nel menu Impostazioni → Wi-Fi attiva la connessione di rete. La fotocamera crea la sua rete: usa la modalità «Wi-Fi fotocamera» qui sopra (l'hotspot non è supportato). Per il live view la ghiera va su P, A, S o M e il tempo non su posa B."
     Brand.SONY -> "Sony a7 III e successive: nel menu Rete attiva la funzione PC remoto via Wi-Fi (se c'è l'autenticazione di accesso, disattivala). Sony meno recenti: avvia sulla fotocamera la funzione Controllo con smartphone."
     Brand.FUJIFILM -> "Avvia sulla fotocamera la connessione Wi-Fi per il controllo remoto da smartphone."
     Brand.OLYMPUS -> "Menu Wi-Fi: avvia la connessione allo smartphone in modalità privata. Usa la modalità «Wi-Fi fotocamera» qui sopra."

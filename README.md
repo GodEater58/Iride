@@ -1,6 +1,6 @@
 # Iride
 
-App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più completa alle app dei produttori (Camera Connect, SnapBridge, Imaging Edge…). Versione attuale: **0.8**.
+App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più completa alle app dei produttori (Camera Connect, SnapBridge, Imaging Edge…). Versione attuale: **0.8.1**.
 
 ## Marche supportate
 
@@ -60,6 +60,7 @@ Le istruzioni per le altre marche sono nella schermata di collegamento («Come p
 - **Wi-Fi della fotocamera lento.** Sulla 6D un RAW può richiedere fino a 20 secondi. Per il live view usa «Fluido» per inquadrare e «Dettaglio» per la messa a fuoco manuale.
 - **Cavo USB.** Serve un adattatore OTG (USB-C → USB-A o il cavo della fotocamera). Il collegamento USB non è ancora stato provato su una fotocamera reale.
 - **Sony a7 IV e successive:** disattiva l'autenticazione di accesso nel menu Rete (non supportata).
+- **Nikon con Wi-Fi integrato (D7200, D750, D5300…):** la fotocamera crea la sua rete, usa «Wi-Fi fotocamera». Per il live view ghiera su P/A/S/M e tempo diverso da posa B.
 - **Nikon Z e modelli recenti con SnapBridge:** l'abbinamento via Bluetooth potrebbe impedire il collegamento (non verificato).
 - **Fujifilm:** la dimensione del live view non è regolabile, perché le fonti non concordano sul codice da usare.
 
