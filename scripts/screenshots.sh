@@ -29,6 +29,7 @@ shot() {
 
 shot connect 6
 shot shoot 12
+shot tools 12
 shot dial 10
 shot stars 24
 shot interval 10

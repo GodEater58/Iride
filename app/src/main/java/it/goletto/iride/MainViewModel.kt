@@ -38,6 +38,8 @@ import it.goletto.iride.camera.ExposureState
 import it.goletto.iride.camera.LvQuality
 import it.goletto.iride.camera.Shot
 import it.goletto.iride.camera.LensInfo
+import it.goletto.iride.camera.LiveAnalyzer
+import it.goletto.iride.camera.ExpoOption
 import it.goletto.iride.camera.SensorInfo
 import it.goletto.iride.camera.SkyAdvisor
 import it.goletto.iride.camera.StarMeasure
@@ -60,6 +62,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.concurrent.thread
+import kotlin.math.abs
+import kotlin.math.ln
 import kotlin.math.roundToInt
 
 data class LogLine(val time: String, val text: String, val error: Boolean)
@@ -69,8 +73,19 @@ const val MILKY_WAY = "Via Lattea"
 
 enum class SeqPhase { IDLE, EXPOSING, WAITING, BUSY }
 
-/** Preset dell'intervallometro; [bulb] null = lascia la posa attuale (i dark devono uguagliare le foto). */
-data class Preset(val name: String, val count: Int, val pause: Double, val bulb: Double?, val note: String)
+/**
+ * Preset dell'intervallometro; [bulb] null = lascia la posa attuale (i dark devono uguagliare le foto).
+ * [folder] è la sottocartella di Download/Iride dove finiscono i file scaricati.
+ */
+data class Preset(val name: String, val count: Int, val pause: Double, val bulb: Double?, val folder: String, val note: String)
+
+/** Ritardi possibili prima di una sequenza, in secondi. */
+val START_DELAYS = listOf(0, 10, 60, 600, 1800)
+
+/** La fotocamera ha rifiutato lo scatto ma la connessione è viva: non serve riconnettersi. */
+class ShotRefused(message: String) : IOException(message)
+
+private const val RECONNECT_TRIES = 3
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -111,6 +126,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleGrid() {
         gridOn = !gridOn
         prefs.edit().putBoolean("grid", gridOn).apply()
+    }
+
+    // Aiuti sul mirino: istogramma e focus peaking
+    var histOn by mutableStateOf(prefs.getBoolean("hist", false))
+        private set
+    var peakingOn by mutableStateOf(prefs.getBoolean("peaking", false))
+        private set
+    /** Ultimo istogramma del live view (null = spento o non ancora calcolato). */
+    var histogram by mutableStateOf<LiveAnalyzer.Histogram?>(null)
+        private set
+    /** Contorni a fuoco da sovrapporre al fotogramma. */
+    var peakFrame by mutableStateOf<ImageBitmap?>(null)
+        private set
+
+    fun toggleHistogram() {
+        histOn = !histOn
+        prefs.edit().putBoolean("hist", histOn).apply()
+        if (!histOn) histogram = null
+    }
+
+    fun togglePeaking() {
+        peakingOn = !peakingOn
+        prefs.edit().putBoolean("peaking", peakingOn).apply()
+        if (!peakingOn) peakFrame = null
+    }
+
+    /** L'app è in primo piano: gli avvisi diventano notifiche solo quando non la si guarda. */
+    private var appVisible = true
+
+    private fun alert(title: String, text: String) {
+        if (!appVisible) SessionService.alert(getApplication(), title, text)
     }
 
     // Connessione
@@ -215,18 +261,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     val presets = listOf(
-        Preset(MILKY_WAY, 20, 2.0, 0.0, "Camera fissa su treppiede: tempo dalla regola NPF per avere stelle puntiformi, diaframma tutto aperto, ISO 3200–6400."),
-        Preset("Deep sky (inseguitore)", 15, 3.0, 120.0, "Pose da 2 minuti in posa B: serve una montatura che segue il moto delle stelle."),
-        Preset("Timelapse", 300, 5.0, 0.0, "300 scatti, uno ogni 5 secondi, col tempo impostato sulla fotocamera."),
-        Preset("Dark frame", 20, 2.0, null, "Stessi tempo e ISO delle foto, col tappo sull'obiettivo: servono a togliere il rumore del sensore."),
+        Preset(MILKY_WAY, 20, 2.0, 0.0, "Light", "Camera fissa su treppiede: tempo dalla regola NPF per avere stelle puntiformi, diaframma tutto aperto, ISO 3200–6400."),
+        Preset("Deep sky (inseguitore)", 15, 3.0, 120.0, "Light", "Pose da 2 minuti in posa B: serve una montatura che segue il moto delle stelle."),
+        Preset("Timelapse", 300, 5.0, 0.0, "", "300 scatti, uno ogni 5 secondi, col tempo impostato sulla fotocamera."),
+        Preset("Dark frame", 20, 2.0, null, "Dark", "Stessi tempo e ISO delle foto, col tappo sull'obiettivo: servono a togliere il rumore del sensore."),
+        Preset("Flat", 20, 1.0, 0.0, "Flat", "Davanti all'obiettivo un panno bianco o uno schermo acceso uniforme. Stessi fuoco e diaframma delle foto, modo Av: il tempo lo sceglie la fotocamera."),
+        Preset("Bias", 30, 1.0, 0.0, "Bias", "Tappo sull'obiettivo, stesso ISO delle foto e il tempo più breve della fotocamera (es. 1/4000)."),
     )
+
+    /** Attesa prima del primo scatto, in secondi (es. per far finire il crepuscolo). */
+    var intDelay by mutableIntStateOf(prefs.getInt("intDelay", 0))
+        private set
+
+    fun changeDelay(seconds: Int) {
+        intDelay = seconds
+        prefs.edit().putInt("intDelay", seconds).apply()
+    }
+
+    /** Si incrementa a ogni sequenza: una sequenza vecchia che finisce in ritardo non tocca lo stato. */
+    private var seqToken = 0
+
+    /** Fine di una sequenza (completata o fermata): l'interfaccia vibra. */
+    var seqEndTick by mutableIntStateOf(0)
+        private set
 
     // Galleria
     val files = mutableStateListOf<CamFile>()
     val thumbs = mutableStateMapOf<String, ImageBitmap>()
     var selected by mutableStateOf(setOf<String>())
         private set
-    var subfolder by mutableStateOf("")
+    var subfolder by mutableStateOf(presets.firstOrNull { it.name == prefs.getString("preset", null) }?.folder ?: "")
     var galleryStatus by mutableStateOf("")
         private set
     var downloading by mutableStateOf(false)
@@ -287,23 +351,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         setStatus("Preparazione…")
         connectJob = viewModelScope.launch {
             try {
-                if (mode == Mode.CAMERA_WIFI) {
-                    if (ssid.isBlank()) throw IOException("Inserisci il nome della rete della fotocamera")
-                    setStatus("Collegamento al Wi-Fi della fotocamera…")
-                    net.connectToCameraWifi(ssid.trim(), password)
-                    log("Wi-Fi fotocamera collegato: internet resta sui dati mobili")
-                    if (net.supportsConcurrentWifi) log("Il telefono supporta due reti Wi-Fi in contemporanea")
-                } else {
-                    net.release()
-                }
-
-                // il collegamento non si può interrompere a metà: se nel frattempo è stato annullato,
-                // la sessione appena aperta va chiusa invece di restare appesa sulla fotocamera
-                val cam = withContext(Dispatchers.IO + NonCancellable) {
-                    DriverFactory.connect(brand, host, net, guid(), "Iride ${Build.MODEL}", ::log) { msg ->
-                        main.post { if (busy) setStatus(msg) }
-                    }
-                }
+                val cam = openWifi(brand, host)
                 if (!isActive) {
                     thread(isDaemon = true) { runCatching { cam.close() } }
                     throw CancellationException("annullato")
@@ -330,14 +378,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         setStatus("Collegamento via USB…")
         connectJob = viewModelScope.launch {
             try {
-                val found = usb.find() ?: throw IOException("Nessuna fotocamera sul cavo USB. Collegala con un adattatore OTG e accendila.")
-                setStatus("Consenti a Iride di usare ${found.name}")
-                if (!usb.requestPermission(found.device)) throw IOException("Permesso per la fotocamera USB negato")
-                net.release()
-                setStatus("Collegamento a ${found.name}…")
-                val cam = withContext(Dispatchers.IO + NonCancellable) {
-                    DriverFactory.connectUsb(brand, usb, found, ::log)
-                }
+                val cam = openUsb(brand)
                 if (!isActive) {
                     thread(isDaemon = true) { runCatching { cam.close() } }
                     throw CancellationException("annullato")
@@ -350,6 +391,116 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 log("Errore: ${e.message}")
                 cleanup()
                 setStatus(e.message ?: "Errore sconosciuto", error = true)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    /** Wi-Fi della fotocamera (se scelto) e ricerca: restituisce il driver collegato. */
+    private suspend fun openWifi(b: Brand, h: String): CameraDriver {
+        if (mode == Mode.CAMERA_WIFI) {
+            if (ssid.isBlank()) throw IOException("Inserisci il nome della rete della fotocamera")
+            setStatus("Collegamento al Wi-Fi della fotocamera…")
+            net.connectToCameraWifi(ssid.trim(), password)
+            log("Wi-Fi fotocamera collegato: internet resta sui dati mobili")
+            if (net.supportsConcurrentWifi) log("Il telefono supporta due reti Wi-Fi in contemporanea")
+        } else {
+            net.release()
+        }
+        // il collegamento non si può interrompere a metà: se nel frattempo è stato annullato,
+        // la sessione appena aperta va chiusa invece di restare appesa sulla fotocamera
+        return withContext(Dispatchers.IO + NonCancellable) {
+            DriverFactory.connect(b, h, net, guid(), "Iride ${Build.MODEL}", ::log) { msg ->
+                main.post { if (busy) setStatus(msg) }
+            }
+        }
+    }
+
+    private suspend fun openUsb(b: Brand): CameraDriver {
+        val found = usb.find() ?: throw IOException("Nessuna fotocamera sul cavo USB. Collegala con un adattatore OTG e accendila.")
+        setStatus("Consenti a Iride di usare ${found.name}")
+        if (!usb.requestPermission(found.device)) throw IOException("Permesso per la fotocamera USB negato")
+        net.release()
+        setStatus("Collegamento a ${found.name}…")
+        return withContext(Dispatchers.IO + NonCancellable) {
+            DriverFactory.connectUsb(b, usb, found, ::log)
+        }
+    }
+
+    // ---------------------------------------------------------------- riconnessione automatica
+
+    private enum class Link { WIFI, USB }
+
+    /** Ultimo collegamento riuscito (null in demo): serve per riconnettersi da soli. */
+    private var lastLink: Link? = null
+    private var lastBrand = Brand.AUTO
+    private var lastTarget = ""
+    /** Sequenza interrotta dalla caduta della connessione: riprende da questo scatto (0 = nessuna). */
+    private var resumeAt = 0
+    private var resumeTotal = 0
+    private var reconnectsThisSequence = 0
+
+    /** Sta cercando di ricollegarsi dopo una caduta della connessione. */
+    var reconnecting by mutableStateOf(false)
+        private set
+
+    /**
+     * Prova a ricollegarsi alla stessa fotocamera, con attese crescenti (la fotocamera può
+     * impiegare qualche secondo a chiudere la vecchia sessione). Se una sequenza era in corso
+     * riprende dallo scatto interrotto.
+     */
+    private fun reconnect(link: Link, reason: String?) {
+        busy = true
+        reconnecting = true
+        val waits = longArrayOf(2_000, 6_000, 15_000)
+        connectJob = viewModelScope.launch {
+            try {
+                for (attempt in 1..RECONNECT_TRIES) {
+                    val pending = if (resumeAt > 0) " La sequenza riprenderà dallo scatto $resumeAt di $resumeTotal." else ""
+                    setStatus("Connessione persa. Nuovo tentativo $attempt di $RECONNECT_TRIES…$pending")
+                    refreshSession()
+                    delay(waits[attempt - 1])
+                    try {
+                        // gli ultimi tentativi cercano di nuovo la fotocamera: l'indirizzo può essere cambiato
+                        val target = if (attempt < RECONNECT_TRIES) lastTarget else host
+                        val cam = if (link == Link.USB) openUsb(lastBrand) else openWifi(lastBrand, target)
+                        if (!isActive) {
+                            thread(isDaemon = true) { runCatching { cam.close() } }
+                            throw CancellationException("annullato")
+                        }
+                        reconnecting = false
+                        onConnected(cam, usbLink = link == Link.USB)
+                        log("Riconnesso al tentativo $attempt")
+                        if (resumeAt > 0) {
+                            val first = resumeAt
+                            val total = resumeTotal
+                            resumeAt = 0
+                            delay(1500)
+                            if (connected) {
+                                log("Riprendo la sequenza dallo scatto $first di $total")
+                                beginSequence(first, total, 0)
+                            }
+                        }
+                        return@launch
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        log("Tentativo $attempt non riuscito: ${e.message}")
+                        net.release()
+                    }
+                }
+                val lostAt = if (resumeAt > 0) " La sequenza si è fermata allo scatto $resumeAt di $resumeTotal." else ""
+                reconnecting = false
+                resumeAt = 0
+                setStatus("Connessione persa ($reason) e riconnessione non riuscita: ricollegati a mano.$lostAt", error = true)
+                alert("Fotocamera scollegata", "Riconnessione non riuscita.$lostAt")
+                refreshSession()
+            } catch (e: CancellationException) {
+                reconnecting = false
+                resumeAt = 0
+                cleanup()
+                setStatus("Riconnessione annullata")
             } finally {
                 busy = false
             }
@@ -393,6 +544,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun runScene(name: String) {
         viewModelScope.launch {
             applyNight(name == "night")
+            // aiuti del mirino e bracketing solo nella scena dedicata: le altre restano come nella guida
+            val tools = name == "tools"
+            if (histOn != tools) toggleHistogram()
+            if (peakingOn != tools) togglePeaking()
+            changeBracket(if (tools) 5 else 1)
             if (name == "connect") {
                 brand = Brand.CANON
                 mode = Mode.HOTSPOT
@@ -405,7 +561,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             connectDemo()
             delay(800)
             when (name) {
-                "shoot", "night" -> toggleLive()
+                "shoot", "night", "tools" -> toggleLive()
                 "dial" -> requestedDial = ExpoKey.TV
                 "stars" -> {
                     toggleLive()
@@ -436,6 +592,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun onConnected(cam: CameraDriver, usbLink: Boolean) {
         val target = if (usbLink) "USB" else DriverFactory.lastHost
+        lastLink = if (cam is DemoDriver) null else if (usbLink) Link.USB else Link.WIFI
+        lastBrand = cam.brand
+        lastTarget = if (usbLink) "" else target
         camera = cam
         viaUsb = usbLink
         connectedBrand = cam.brand
@@ -456,26 +615,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun cancelConnect() {
+        val wasReconnecting = reconnecting
+        reconnecting = false
+        resumeAt = 0
         connectJob?.cancel()
         cleanup()
         busy = false
-        setStatus("Collegamento annullato")
+        setStatus(if (wasReconnecting) "Riconnessione annullata" else "Collegamento annullato")
     }
 
     fun disconnect() {
+        reconnecting = false
+        resumeAt = 0
         cleanup()
         setStatus("Scollegato")
         log("Scollegato")
     }
 
     /**
-     * Servizio in primo piano mentre una sequenza o un download sono in corso: a schermo spento
-     * Android non mette in pausa l'app né spegne la rete. Si ferma quando non serve più.
+     * Servizio in primo piano mentre una sequenza, un download o una riconnessione sono in corso:
+     * a schermo spento Android non mette in pausa l'app né spegne la rete. Si ferma quando non serve più.
      */
     private fun refreshSession() {
         val app = getApplication<Application>()
         when {
-            intervalRunning -> SessionService.update(app, "Intervallometro: scatto ${minOf(seqDone + 1, seqTotal)} di $seqTotal")
+            intervalRunning -> SessionService.update(
+                app,
+                if (seqDone == 0 && seqPhase == SeqPhase.WAITING) "Intervallometro: inizio tra poco"
+                else "Intervallometro: scatto ${minOf(seqDone + 1, seqTotal)} di $seqTotal",
+            )
+            reconnecting -> SessionService.update(app, "Connessione persa: riprovo a collegarmi…")
             downloading -> SessionService.update(app, "Download: file $dlIndex di $dlTotal")
             else -> SessionService.stop(app)
         }
@@ -485,6 +654,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var resumeLive = false
 
     fun onAppVisible(visible: Boolean) {
+        appVisible = visible
         if (!visible) {
             if (liveOn && !intervalRunning) {
                 resumeLive = true
@@ -520,9 +690,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         starMeasure = null
         intervalRunning = false
         seqPhase = SeqPhase.IDLE
+        seqToken++
+        bracketJob?.cancel()
+        bracketing = false
+        histogram = null
+        peakFrame = null
         downloading = false
         resumeLive = false
-        SessionService.stop(getApplication())
+        // durante la riconnessione il servizio resta acceso: a schermo spento serve la rete
+        refreshSession()
         files.clear()
         thumbs.clear()
         thumbLoading.clear()
@@ -541,11 +717,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun onConnectionLost(reason: String?) {
         if (!connected) return
         log("Connessione persa: $reason")
+        val link = lastLink
+        // sequenza a metà: si ricorda da dove riprendere (lo scatto in corso è perso)
+        if (intervalRunning && seqDone < seqTotal && reconnectsThisSequence < 10) {
+            resumeAt = seqDone + 1
+            resumeTotal = seqTotal
+            reconnectsThisSequence++
+        } else {
+            resumeAt = 0
+        }
+        if (link == null) {
+            cleanup()
+            setStatus("Connessione persa: $reason", error = true)
+            return
+        }
+        reconnecting = true
         cleanup()
-        setStatus("Connessione persa: $reason", error = true)
+        reconnect(link, reason)
     }
 
     override fun onCleared() {
+        reconnecting = false
         cleanup()
     }
 
@@ -615,6 +807,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun shoot() {
         val cam = camera ?: return
+        if (bracketShots > 1 && caps.exposureControl) {
+            shootBracket(cam)
+            return
+        }
         shotTick++
         lastShotAt = SystemClock.elapsedRealtime()
         viewModelScope.launch(Dispatchers.IO) {
@@ -655,6 +851,121 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------------------------------------------------------------- bracketing
+
+    /** Scatti del bracketing: 1 = spento, altrimenti 3, 5 o 7. */
+    var bracketShots by mutableIntStateOf(prefs.getInt("brk", 1))
+        private set
+    /** Distanza tra uno scatto e l'altro, in EV. */
+    var bracketStep by mutableIntStateOf(prefs.getInt("brkStep", 1))
+        private set
+    var bracketing by mutableStateOf(false)
+        private set
+    var bracketStatus by mutableStateOf("")
+        private set
+    private var bracketJob: Job? = null
+
+    fun changeBracket(shots: Int) {
+        bracketShots = shots
+        bracketStatus = ""
+        prefs.edit().putInt("brk", shots).apply()
+    }
+
+    fun changeBracketStep(ev: Int) {
+        bracketStep = ev
+        prefs.edit().putInt("brkStep", ev).apply()
+    }
+
+    private class BracketPlan(val key: ExpoKey, val base: ExpoOption, val shots: List<ExpoOption>)
+
+    /** "+0.7" → 0.7, "-1" → -1, "0" → 0 */
+    private fun evValue(label: String): Double? = label.replace(',', '.').replace("EV", "").trim().removePrefix("+").toDoubleOrNull()
+
+    /**
+     * Valori da scattare, nell'ordine 0, −, +, −−, ++. In manuale si cambia il tempo (diaframma
+     * e ISO restano fissi); negli altri modi la compensazione, così la fotocamera non annulla
+     * la differenza cambiando il diaframma. Ogni valore è il più vicino tra quelli offerti.
+     */
+    private fun bracketPlan(ex: ExposureState, shots: Int, step: Int): BracketPlan? {
+        val offsets = buildList {
+            add(0.0)
+            for (k in 1..shots / 2) {
+                add(-k.toDouble() * step)
+                add(k.toDouble() * step)
+            }
+        }
+        fun log2(v: Double) = ln(v) / ln(2.0)
+        val tv = ex.values[ExpoKey.TV]
+        val tvSec = tv?.let { SkyAdvisor.seconds(it.label) }
+        val tvOpts = ex.options[ExpoKey.TV].orEmpty().mapNotNull { o -> SkyAdvisor.seconds(o.label)?.takeIf { it > 0 }?.let { o to log2(it) } }
+        val ev = ex.values[ExpoKey.EV]
+        val evNow = ev?.let { evValue(it.label) }
+        val evOpts = ex.options[ExpoKey.EV].orEmpty().mapNotNull { o -> evValue(o.label)?.let { o to it } }
+        val tvUsable = tv != null && tvSec != null && tvSec > 0 && tvOpts.size > 1
+        val evUsable = ev != null && evNow != null && evOpts.size > 1
+        val useTv = tvUsable && (ex.canEdit(ExpoKey.AV) || !evUsable)
+        return when {
+            useTv -> {
+                val base = log2(tvSec!!)
+                BracketPlan(ExpoKey.TV, tv!!, offsets.map { off -> tvOpts.minBy { abs(it.second - (base + off)) }.first }.distinctBy { it.code })
+            }
+            evUsable -> BracketPlan(
+                ExpoKey.EV, ev!!,
+                offsets.map { off -> evOpts.minBy { abs(it.second - (evNow!! + off)) }.first }.distinctBy { it.code },
+            )
+            else -> null
+        }
+    }
+
+    private fun shootBracket(cam: CameraDriver) {
+        if (bracketing || intervalRunning) return
+        bracketing = true
+        bracketStatus = "Preparazione del bracketing…"
+        val shots = bracketShots
+        val step = bracketStep
+        bracketJob = viewModelScope.launch {
+            var plan: BracketPlan? = null
+            try {
+                val pl = withContext(Dispatchers.IO) { bracketPlan(cam.exposure(), shots, step) }
+                    ?: throw ShotRefused("in questo modo di scatto non si possono cambiare né il tempo né la compensazione")
+                plan = pl
+                val what = if (pl.key == ExpoKey.TV) "tempo" else "compensazione"
+                log("Bracketing di ${pl.shots.size} scatti sul $what: " + pl.shots.joinToString(" · ") { it.label })
+                for ((i, o) in pl.shots.withIndex()) {
+                    val label = "Bracketing ${i + 1} di ${pl.shots.size} · ${if (pl.key == ExpoKey.EV) "EV " else ""}${o.label}"
+                    bracketStatus = label
+                    val set = withContext(Dispatchers.IO) {
+                        cam.setExposure(pl.key, o.code).also { syncExposure(cam) }
+                    }
+                    if (!set) throw ShotRefused("la fotocamera non accetta ${o.label}")
+                    delay(250)
+                    shotTick++
+                    lastShotAt = SystemClock.elapsedRealtime()
+                    // autofocus solo sul primo scatto: gli altri devono avere lo stesso fuoco
+                    val af = autofocus && i == 0
+                    retryShot({ cam.capture(af) }) { bracketStatus = "$label · la fotocamera sta salvando…" }
+                }
+                bracketStatus = "Bracketing completato: ${pl.shots.size} scatti"
+                log(bracketStatus)
+            } catch (e: CancellationException) {
+                bracketStatus = ""
+            } catch (e: Exception) {
+                bracketStatus = "Bracketing interrotto: ${e.message}"
+                log(bracketStatus)
+            } finally {
+                // si rimette il valore di partenza
+                val p = plan
+                if (p != null) {
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        runCatching { cam.setExposure(p.key, p.base.code) }
+                        runCatching { syncExposure(cam) }
+                    }
+                }
+                bracketing = false
+            }
+        }
+    }
+
     /** Cambia la dimensione del live view; se è acceso lo riavvia con la nuova dimensione. */
     fun changeLvQuality(q: LvQuality) {
         if (q == lvQuality) return
@@ -679,6 +990,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             liveFrame = null
             hasFrame = false
             lvStats = ""
+            histogram = null
+            peakFrame = null
             starAssist = false
             zoomIndex = 0
             starMeasure = null
@@ -719,6 +1032,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     liveFrame = null
                     hasFrame = false
                     lvStats = ""
+                    histogram = null
+                    peakFrame = null
                     net.lowLatency(false)
                 }
             } finally {
@@ -747,6 +1062,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         var hasHint = false
         var lost = 0
         val hist = ArrayDeque<Float>()
+        val analyzer = LiveAnalyzer()
+        var analyzed = 0
         for (f in frames) {
             val jpg = f.jpg
             val opts = BitmapFactory.Options().apply {
@@ -796,6 +1113,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     hfrNow = 0f
                 }
                 starMeasure = m
+            } else if (histOn || peakingOn) {
+                // un fotogramma su due: basta all'occhio e lascia la CPU al live view
+                if (++analyzed % 2 == 0) {
+                    val color = if (night) 0xFFFFB4A8.toInt() else 0xFF35E0FF.toInt()
+                    val r = analyzer.analyze(bmp, histOn, peakingOn, color)
+                    histogram = if (histOn) r.histogram else null
+                    peakFrame = if (peakingOn) r.peaking?.asImageBitmap() else null
+                }
             }
             liveFrame = bmp.asImageBitmap()
             if (!hasFrame) hasFrame = true
@@ -905,6 +1230,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         intPause = fmtNum(p.pause)
         p.bulb?.let { intBulb = fmtNum(it) }
         selectedPreset = p.name
+        // i file scaricati vanno nella cartella giusta per lo stacking (Light, Dark, Flat, Bias)
+        subfolder = p.folder
         prefs.edit().putString("preset", p.name).apply()
         if (p.name == MILKY_WAY) refreshLens()
     }
@@ -1009,32 +1336,51 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         intBulb = fmtNum((cur + delta * step).coerceIn(0.0, 3600.0))
     }
 
-    /** Durata stimata della sequenza in secondi (0 se il tempo dipende dalla fotocamera). */
+    /** Durata stimata della sequenza in secondi, ritardo iniziale compreso (0 se non calcolabile). */
     fun estimatedSeconds(): Int {
         val count = intCount.trim().toIntOrNull() ?: return 0
         val bulb = if (caps.bulb) parseSeconds(intBulb) else 0.0
+        // senza posa B vale il tempo della fotocamera, se è un numero (non Bulb o Auto)
+        val shot = if (bulb > 0) bulb else SkyAdvisor.seconds(exposure.text(ExpoKey.TV)) ?: 0.0
         val pause = parseSeconds(intPause)
-        return ((bulb + pause) * count - pause).coerceAtLeast(0.0).roundToInt()
+        val total = (shot + pause) * count - pause
+        if (total <= 0) return 0
+        return (total + intDelay).roundToInt()
     }
 
     fun startInterval() {
-        val cam = camera ?: return
+        if (camera == null) return
         val count = intCount.trim().toIntOrNull()
         if (count == null || count < 1) {
             intervalStatus = "Numero di scatti non valido"
             return
         }
         prefs.edit().putString("intCount", intCount).putString("intPause", intPause).putString("intBulb", intBulb).apply()
+        reconnectsThisSequence = 0
+        beginSequence(1, count, intDelay)
+    }
+
+    /** Scatti da [first] a [total] (dopo una riconnessione si riparte da metà). */
+    private fun beginSequence(first: Int, total: Int, delaySeconds: Int) {
+        val cam = camera ?: return
+        val count = total
         val pauseMs = (parseSeconds(intPause) * 1000).toLong()
         // con fotocamere senza posa B da remoto il valore salvato non va usato
         val bulbMs = if (caps.bulb) (parseSeconds(intBulb) * 1000).toLong() else 0L
+        val token = ++seqToken
         intervalRunning = true
-        seqDone = 0
+        seqDone = first - 1
         seqTotal = count
+        seqPhase = if (delaySeconds > 0) SeqPhase.WAITING else SeqPhase.IDLE
         refreshSession()
         intervalJob = viewModelScope.launch {
+            var completed = false
             try {
-                for (i in 1..count) {
+                if (delaySeconds > 0) {
+                    countdown(delaySeconds * 1000L, SeqPhase.WAITING) { left -> "La sequenza inizia tra ${formatLeft(left)}" }
+                    refreshSession()
+                }
+                for (i in first..count) {
                     val label = "Scatto $i di $count"
                     if (bulbMs > 0) {
                         retryWhileBusy(label) { cam.bulbStart() }
@@ -1055,22 +1401,47 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     refreshSession()
                     log("$label completato")
                     if (i < count && pauseMs > 0) {
-                        countdown(pauseMs, SeqPhase.WAITING) { left -> "Prossimo scatto tra ${left}s" }
+                        countdown(pauseMs, SeqPhase.WAITING) { left -> "Prossimo scatto tra ${formatLeft(left)}" }
                     }
                 }
+                completed = true
                 intervalStatus = "Sequenza completata: $count scatti"
-            } catch (e: CancellationException) {
-                intervalStatus = "Sequenza interrotta dopo $seqDone scatti"
-            } catch (e: Exception) {
-                intervalStatus = "Sequenza fermata: ${e.message}"
                 log(intervalStatus)
+                alert("Sequenza completata", "$count scatti eseguiti.")
+            } catch (e: CancellationException) {
+                if (token == seqToken) intervalStatus = "Sequenza interrotta dopo $seqDone scatti"
+            } catch (e: Exception) {
+                if (token == seqToken) {
+                    if (e is ShotRefused || !connected) {
+                        intervalStatus = "Sequenza fermata: ${e.message}"
+                        log(intervalStatus)
+                        alert("Sequenza fermata", "Dopo $seqDone scatti: ${e.message}")
+                    } else {
+                        // probabile caduta della connessione: riconnessione e ripresa
+                        intervalStatus = "Connessione persa allo scatto ${seqDone + 1}"
+                        onConnectionLost(e.message)
+                    }
+                }
             } finally {
-                intervalRunning = false
-                seqPhase = SeqPhase.IDLE
-                seqPhaseFraction = 0f
-                refreshSession()
+                // una sequenza sostituita (es. ripresa dopo la riconnessione) non tocca lo stato della nuova
+                if (token == seqToken) {
+                    intervalRunning = false
+                    seqPhase = SeqPhase.IDLE
+                    seqPhaseFraction = 0f
+                    seqSecondsLeft = 0
+                    seqEndTick++
+                    refreshSession()
+                }
+                if (completed) reconnectsThisSequence = 0
             }
         }
+    }
+
+    /** 75 → "1 min 15 s", 42 → "42 s" */
+    private fun formatLeft(seconds: Long): String {
+        if (seconds < 60) return "$seconds s"
+        val s = seconds % 60
+        return if (s > 0) "${seconds / 60} min $s s" else "${seconds / 60} min"
     }
 
     private suspend fun countdown(ms: Long, phase: SeqPhase, label: (Long) -> String) {
@@ -1092,7 +1463,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Ripete il comando mentre la fotocamera è occupata (posa precedente, scrittura su scheda). */
-    private suspend fun retryWhileBusy(label: String, action: () -> Shot) {
+    private suspend fun retryWhileBusy(label: String, action: () -> Shot) = retryShot(action) {
+        seqPhase = SeqPhase.BUSY
+        intervalStatus = "$label · la fotocamera sta salvando, riprovo…"
+    }
+
+    private suspend fun retryShot(action: () -> Shot, onBusy: () -> Unit) {
         val start = SystemClock.elapsedRealtime()
         while (true) {
             val shot = withContext(Dispatchers.IO) { action() }
@@ -1100,19 +1476,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val elapsed = SystemClock.elapsedRealtime() - start
             // "occupata" può durare a lungo (scrittura su scheda, riduzione rumore); un errore vero no
             if (shot == Shot.FAILED && elapsed > 20_000) {
-                throw IOException("la fotocamera rifiuta lo scatto (controlla messa a fuoco, modo di scatto e scheda)")
+                throw ShotRefused("la fotocamera rifiuta lo scatto (controlla messa a fuoco, modo di scatto e scheda)")
             }
             if (elapsed > 120_000) {
-                throw IOException("la fotocamera non accetta lo scatto da oltre 2 minuti")
+                throw ShotRefused("la fotocamera non accetta lo scatto da oltre 2 minuti")
             }
-            seqPhase = SeqPhase.BUSY
-            intervalStatus = "$label · la fotocamera sta salvando, riprovo…"
+            onBusy()
             delay(500)
         }
     }
 
     fun stopInterval() {
         intervalJob?.cancel()
+        // fermata a mano: niente ripresa automatica se nel frattempo cade la connessione
+        resumeAt = 0
     }
 
     // ---------------------------------------------------------------- galleria

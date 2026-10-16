@@ -100,5 +100,38 @@ class SessionService : Service() {
         fun stop(context: Context) {
             runCatching { context.stopService(Intent(context, SessionService::class.java)) }
         }
+
+        private const val ALERT_CHANNEL = "avvisi"
+        private const val ALERT_ID = 8
+
+        /**
+         * Avviso con suono e vibrazione (fine sequenza, connessione persa): serve quando il telefono
+         * è in tasca o a schermo spento. Canale separato, così si può silenziare da solo.
+         */
+        fun alert(context: Context, title: String, text: String) {
+            runCatching {
+                val nm = context.getSystemService(NotificationManager::class.java)
+                if (nm.getNotificationChannel(ALERT_CHANNEL) == null) {
+                    nm.createNotificationChannel(
+                        NotificationChannel(ALERT_CHANNEL, "Fine sequenza e problemi", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                            enableVibration(true)
+                        }
+                    )
+                }
+                val open = PendingIntent.getActivity(
+                    context, 1, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                val n = Notification.Builder(context, ALERT_CHANNEL)
+                    .setSmallIcon(android.R.drawable.ic_menu_camera)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setStyle(Notification.BigTextStyle().bigText(text))
+                    .setContentIntent(open)
+                    .setAutoCancel(true)
+                    .build()
+                nm.notify(ALERT_ID, n)
+            }
+        }
     }
 }

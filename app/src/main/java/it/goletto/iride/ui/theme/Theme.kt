@@ -11,6 +11,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -67,6 +69,21 @@ val NightPalette = IridePalette(
 )
 
 val LocalIride = staticCompositionLocalOf { DayPalette }
+
+/**
+ * Immagini (live view, miniature) in modalità notte: solo il canale rosso, con la luminosità
+ * dell'immagine originale. Un fotogramma a colori pieni basta a far perdere l'adattamento al buio.
+ */
+val NightImageFilter = ColorFilter.colorMatrix(
+    ColorMatrix(
+        floatArrayOf(
+            0.30f, 0.59f, 0.11f, 0f, 0f,
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f,
+        )
+    )
+)
 
 val Barlow = FontFamily(
     Font(R.font.barlow_regular, FontWeight.Normal),

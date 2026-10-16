@@ -96,7 +96,9 @@ import it.goletto.iride.camera.SkyAdvisor
 import it.goletto.iride.camera.formatAperture
 import it.goletto.iride.camera.ExpoKey
 import it.goletto.iride.camera.LvQuality
+import it.goletto.iride.START_DELAYS
 import it.goletto.iride.ui.theme.LocalIride
+import it.goletto.iride.ui.theme.NightImageFilter
 import it.goletto.iride.ui.theme.readout
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -313,30 +315,15 @@ private fun Viewfinder(vm: MainViewModel) {
                 }
             }
         }
-        if (hasFrame) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .clickable(role = Role.Switch, onClick = vm::toggleGrid),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    IrideIcons.Grid,
-                    if (vm.gridOn) "Nascondi griglia" else "Mostra griglia",
-                    tint = if (vm.gridOn) p.lcd else Color.White,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+        if (hasFrame && vm.histOn && !assist) {
+            HistogramBox(vm, Modifier.align(Alignment.BottomEnd).padding(8.dp))
         }
     }
     if (assist && hasFrame) {
         StarFocusPanel(vm)
         return
     }
+    if (vm.liveOn) AidsRow(vm)
     if (vm.caps.liveViewQuality) {
         Row(
             Modifier
@@ -371,11 +358,86 @@ private fun Viewfinder(vm: MainViewModel) {
     }
     if (hasFrame) {
         Text(
-            "Pizzica per ingrandire, doppio tocco per zoom 4× sul punto. «Fluido» per inquadrare, «Dettaglio» per la messa a fuoco manuale.",
+            if (vm.peakingOn) "Peaking: i contorni a fuoco si colorano. Gira la ghiera finché i bordi del soggetto si accendono di più."
+            else "Pizzica per ingrandire, doppio tocco per zoom 4× sul punto. «Fluido» per inquadrare, «Dettaglio» per la messa a fuoco manuale.",
             style = MaterialTheme.typography.labelSmall,
             color = p.muted,
             modifier = Modifier.padding(top = 6.dp),
         )
+    }
+}
+
+/** Aiuti sovrapposti al mirino: griglia dei terzi, istogramma, contorni a fuoco. */
+@Composable
+private fun AidsRow(vm: MainViewModel) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AidChip("Griglia", IrideIcons.Grid, vm.gridOn, vm::toggleGrid, Modifier.weight(1f))
+        AidChip("Istogramma", IrideIcons.Histogram, vm.histOn, vm::toggleHistogram, Modifier.weight(1f))
+        AidChip("Peaking", IrideIcons.Peaking, vm.peakingOn, vm::togglePeaking, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun AidChip(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val p = LocalIride.current
+    val bg by animateColorAsState(if (on) p.lcd else p.raised, label = "aid")
+    Row(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .border(1.dp, if (on) p.lcd else p.groove, RoundedCornerShape(12.dp))
+            .clickable(role = Role.Switch, onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = if (on) p.onLcd else p.muted, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = if (on) p.onLcd else p.text, maxLines = 1)
+    }
+}
+
+/**
+ * Istogramma della luminosità del live view. A sinistra i neri, a destra i bianchi: una barra
+ * rossa sul bordo avvisa che una parte dell'immagine è bruciata (o completamente nera).
+ */
+@Composable
+private fun HistogramBox(vm: MainViewModel, modifier: Modifier) {
+    val p = LocalIride.current
+    val bars = if (p.night) p.lcd else Color.White.copy(alpha = 0.85f)
+    val warn = p.exposure
+    Canvas(
+        modifier
+            .size(width = 112.dp, height = 56.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black.copy(alpha = 0.55f))
+            .semantics { contentDescription = "Istogramma" },
+    ) {
+        val h = vm.histogram ?: return@Canvas
+        val pad = 4.dp.toPx()
+        val w = size.width - pad * 2
+        val ht = size.height - pad * 2
+        val bw = w / h.bins.size
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(pad, pad + ht)
+            h.bins.forEachIndexed { i, v ->
+                // radice: si vedono anche le zone con pochi pixel (es. il cielo stellato)
+                val y = pad + ht - kotlin.math.sqrt(v) * ht
+                lineTo(pad + i * bw, y)
+                lineTo(pad + (i + 1) * bw, y)
+            }
+            lineTo(pad + w, pad + ht)
+            close()
+        }
+        drawPath(path, bars)
+        val edge = 3.dp.toPx()
+        if (h.brightClip > 0.005f) drawRect(warn, Offset(size.width - edge, 0f), Size(edge, size.height))
+        if (h.darkClip > 0.02f) drawRect(warn, Offset(0f, 0f), Size(edge, size.height))
     }
 }
 
@@ -521,6 +583,8 @@ private fun StarFocusPanel(vm: MainViewModel) {
  */
 @Composable
 private fun LiveImage(vm: MainViewModel, modifier: Modifier) {
+    // in modalità notte il live view diventa rosso come il resto dell'app
+    val tint = if (LocalIride.current.night) NightImageFilter else null
     Spacer(
         modifier
             .semantics { contentDescription = "Live view" }
@@ -537,8 +601,19 @@ private fun LiveImage(vm: MainViewModel, modifier: Modifier) {
                     img,
                     dstOffset = IntOffset(ox, oy),
                     dstSize = IntSize(dw, dh),
+                    colorFilter = tint,
                     filterQuality = FilterQuality.Low,
                 )
+                // contorni a fuoco (focus peaking), calcolati su una copia ridotta
+                val peak = vm.peakFrame
+                if (peak != null && !vm.starAssist) {
+                    drawImage(
+                        peak,
+                        dstOffset = IntOffset(ox, oy),
+                        dstSize = IntSize(dw, dh),
+                        filterQuality = FilterQuality.None,
+                    )
+                }
                 if (vm.starAssist) {
                     // stella inseguita: cerchio verde se è al meglio della sessione
                     val m = vm.starMeasure
@@ -728,7 +803,20 @@ private fun ShutterRow(vm: MainViewModel) {
         }
         if (vm.caps.autofocusToggle) {
             Spacer(Modifier.height(12.dp))
-            SmallSwitch("Autofocus allo scatto", vm.autofocus, enabled = !vm.intervalRunning) { vm.autofocus = !vm.autofocus }
+            SmallSwitch("Autofocus allo scatto", vm.autofocus, enabled = !vm.intervalRunning && !vm.bracketing) { vm.autofocus = !vm.autofocus }
+        }
+        if (vm.caps.exposureControl) {
+            Spacer(Modifier.height(12.dp))
+            BracketControls(vm)
+        }
+        AnimatedVisibility(vm.bracketStatus.isNotEmpty() && vm.bracketShots > 1, enter = fadeIn(), exit = fadeOut()) {
+            Text(
+                vm.bracketStatus,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (vm.bracketing) p.text else p.muted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 10.dp),
+            )
         }
         AnimatedVisibility(vm.intervalRunning, enter = fadeIn(), exit = fadeOut()) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 14.dp)) {
@@ -738,6 +826,79 @@ private fun ShutterRow(vm: MainViewModel) {
                     color = p.text,
                 )
                 Text(vm.intervalStatus, style = MaterialTheme.typography.bodySmall, color = p.muted, textAlign = TextAlign.Center)
+            }
+        }
+    }
+}
+
+/**
+ * Bracketing: più scatti di fila a esposizioni diverse (per HDR o per sicurezza).
+ * In manuale cambia il tempo, negli altri modi la compensazione.
+ */
+@Composable
+private fun BracketControls(vm: MainViewModel) {
+    val p = LocalIride.current
+    val enabled = !vm.intervalRunning && !vm.bracketing
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(p.raised)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(IrideIcons.Bracket, null, tint = if (vm.bracketShots > 1) p.lcd else p.muted, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Bracketing", style = MaterialTheme.typography.labelLarge, color = p.text, modifier = Modifier.weight(1f))
+            Segmented(listOf(1 to "No", 3 to "3", 5 to "5", 7 to "7"), vm.bracketShots, enabled, Modifier.width(176.dp)) { vm.changeBracket(it) }
+        }
+        if (vm.bracketShots > 1) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Distanza tra gli scatti", style = MaterialTheme.typography.labelMedium, color = p.muted, modifier = Modifier.weight(1f))
+                Segmented(listOf(1 to "1 EV", 2 to "2 EV"), vm.bracketStep, enabled, Modifier.width(120.dp)) { vm.changeBracketStep(it) }
+            }
+            Text(
+                "Il tasto di scatto fa ${vm.bracketShots} foto: normale, più scura, più chiara… In M cambia il tempo, negli altri modi la compensazione. Alla fine torna il valore di partenza.",
+                style = MaterialTheme.typography.labelSmall,
+                color = p.muted,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+    }
+}
+
+/** Scelta tra poche opzioni, come i selettori sul corpo macchina. */
+@Composable
+private fun Segmented(options: List<Pair<Int, String>>, selected: Int, enabled: Boolean, modifier: Modifier, onSelect: (Int) -> Unit) {
+    val p = LocalIride.current
+    Row(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(p.body)
+            .padding(2.dp),
+    ) {
+        options.forEach { (value, label) ->
+            val sel = value == selected
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (sel) p.lcd else Color.Transparent)
+                    .clickable(enabled = enabled, role = Role.RadioButton) { onSelect(value) }
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = when {
+                        sel -> p.onLcd
+                        enabled -> p.text
+                        else -> p.muted
+                    },
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -761,6 +922,13 @@ private fun ShutterButton(vm: MainViewModel) {
             iris.animateTo(0.78f, tween(320, easing = FastOutSlowInEasing))
         }
     }
+    // fine sequenza: doppia vibrazione, così si sente anche senza guardare lo schermo
+    LaunchedEffect(vm.seqEndTick) {
+        if (vm.seqEndTick == 0) return@LaunchedEffect
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        kotlinx.coroutines.delay(220)
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
     LaunchedEffect(exposing, vm.seqPhase) {
         if (!exposing && iris.value < 0.5f && vm.seqPhase != SeqPhase.EXPOSING) {
             iris.animateTo(0.78f, tween(320))
@@ -780,7 +948,7 @@ private fun ShutterButton(vm: MainViewModel) {
             .size(128.dp)
             .pressScale(src)
             .clip(CircleShape)
-            .clickable(src, null, enabled = !vm.intervalRunning, role = Role.Button, onClick = vm::shoot)
+            .clickable(src, null, enabled = !vm.intervalRunning && !vm.bracketing, role = Role.Button, onClick = vm::shoot)
             .semantics { contentDescription = "Scatta" },
         contentAlignment = Alignment.Center,
     ) {
@@ -857,6 +1025,15 @@ private fun Intervalometer(vm: MainViewModel) {
     val chosen = vm.presets.firstOrNull { it.name == vm.selectedPreset }
     if (chosen != null) {
         Text(chosen.note, style = MaterialTheme.typography.bodySmall, color = p.muted, modifier = Modifier.padding(top = 10.dp))
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(IrideIcons.Download, null, tint = p.muted, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "Download in " + if (vm.subfolder.isEmpty()) "Download/Iride" else "Download/Iride/${vm.subfolder}",
+                style = MaterialTheme.typography.labelSmall,
+                color = p.muted,
+            )
+        }
         if (chosen.name == MILKY_WAY) {
             Spacer(Modifier.height(12.dp))
             SkyCard(vm, enabled = !running)
@@ -874,9 +1051,25 @@ private fun Intervalometer(vm: MainViewModel) {
         style = MaterialTheme.typography.bodySmall,
         color = p.muted,
     )
+    Spacer(Modifier.height(14.dp))
+    Text("Inizio", style = MaterialTheme.typography.labelSmall, color = p.muted)
+    Spacer(Modifier.height(6.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        START_DELAYS.forEach { s ->
+            val label = when {
+                s == 0 -> "Subito"
+                s < 60 -> "Tra $s s"
+                else -> "Tra ${s / 60} min"
+            }
+            PresetChip(label, selected = s == vm.intDelay, enabled = !running) { vm.changeDelay(s) }
+        }
+    }
     Spacer(Modifier.height(16.dp))
     if (running) {
-        PrimaryButton("Interrompi sequenza", vm::stopInterval, Modifier.fillMaxWidth(), danger = true)
+        StopSequenceButton(vm)
     } else {
         PrimaryButton("Avvia sequenza", vm::startInterval, Modifier.fillMaxWidth(), icon = IrideIcons.Timer)
         if (vm.intervalStatus.isNotEmpty()) {
@@ -888,6 +1081,37 @@ private fun Intervalometer(vm: MainViewModel) {
             )
         }
     }
+}
+
+/**
+ * Interrompere una sequenza lunga per un tocco sbagliato al buio fa perdere la serata:
+ * serve un secondo tocco entro 3 secondi.
+ */
+@Composable
+private fun StopSequenceButton(vm: MainViewModel) {
+    val haptics = LocalHapticFeedback.current
+    var armed by remember { mutableStateOf(false) }
+    LaunchedEffect(armed) {
+        if (armed) {
+            kotlinx.coroutines.delay(3000)
+            armed = false
+        }
+    }
+    PrimaryButton(
+        if (armed) "Tocca di nuovo per interrompere" else "Interrompi sequenza",
+        {
+            if (armed) {
+                armed = false
+                vm.stopInterval()
+            } else {
+                armed = true
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        },
+        Modifier.fillMaxWidth(),
+        danger = armed,
+        icon = if (armed) IrideIcons.Close else null,
+    )
 }
 
 @Composable

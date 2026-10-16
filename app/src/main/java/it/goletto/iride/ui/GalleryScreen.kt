@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import it.goletto.iride.MainViewModel
 import it.goletto.iride.camera.CamFile
 import it.goletto.iride.ui.theme.LocalIride
+import it.goletto.iride.ui.theme.NightImageFilter
 import it.goletto.iride.ui.theme.readout
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -290,7 +291,7 @@ private fun Tile(vm: MainViewModel, f: CamFile, selected: Boolean, onClick: () -
                 .background(p.groove),
         ) {
             if (thumb != null) {
-                Image(thumb, f.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                Image(thumb, f.name, contentScale = ContentScale.Crop, colorFilter = if (p.night) NightImageFilter else null, modifier = Modifier.fillMaxSize())
             }
         }
         // tipo file
@@ -396,7 +397,7 @@ private fun PreviewSheet(vm: MainViewModel, f: CamFile, onDismiss: () -> Unit) {
             ) {
                 val thumb = vm.thumbs[f.id]
                 if (thumb != null) {
-                    Image(thumb, f.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                    Image(thumb, f.name, contentScale = ContentScale.Fit, colorFilter = if (p.night) NightImageFilter else null, modifier = Modifier.fillMaxSize())
                 } else {
                     Text("Anteprima non disponibile", color = p.muted)
                 }

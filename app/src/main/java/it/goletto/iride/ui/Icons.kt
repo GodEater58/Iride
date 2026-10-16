@@ -113,4 +113,25 @@ object IrideIcons {
     )
 
     val Plus = stroked("plus", 2.2f, "M6,12h12", "M12,6v12")
+
+    /** Istogramma: colline di barre su una linea di base. */
+    val Histogram = filled(
+        "histogram",
+        "M3,20h18v1.6H3z",
+        "M4,19V15h2v4zM7,19V10h2v9zM10,19V6h2v13zM13,19V9h2v10zM16,19V13h2v6zM19,19V16h2v3z",
+    )
+
+    /** Peaking: profilo di un soggetto con il contorno evidenziato a tratti. */
+    val Peaking = stroked(
+        "peaking", 1.8f,
+        "M4,19l5,-8 3,4 2,-3 6,7",
+        "M4,5h2", "M9,5h2", "M14,5h2", "M19,5h1",
+        "M15.5,7.5m-1.5,0a1.5,1.5 0,1 1,3 0a1.5,1.5 0,1 1,-3 0",
+    )
+
+    /** Bracketing: tre fotogrammi sovrapposti. */
+    val Bracket = stroked(
+        "bracket", 1.7f,
+        "M3,8h10v10H3z", "M7,5h10v10", "M11,2h10v10",
+    )
 }
