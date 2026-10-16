@@ -367,8 +367,8 @@ class CanonDriver(ptp: PtpTransport, log: (String) -> Unit) : PtpCamera(ptp, log
             lvGotFrame = true
             return frame
         }
-        // nessun fotogramma da questa uscita: dopo 3 s si prova la successiva
-        if (!lvGotFrame && zoom == 1 && lvTry < lvCandidates.size - 1 && System.currentTimeMillis() - lvStartAt > 3000) {
+        // nessun fotogramma da questa uscita: dopo 2,5 s si prova la successiva
+        if (!lvGotFrame && zoom == 1 && lvTry < lvCandidates.size - 1 && System.currentTimeMillis() - lvStartAt > 2500) {
             val bad = currentOutput
             badOutputs.add(bad)
             lvTry++

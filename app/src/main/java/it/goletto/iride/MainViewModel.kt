@@ -468,6 +468,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         log("Scollegato")
     }
 
+    /**
+     * Servizio in primo piano mentre una sequenza o un download sono in corso: a schermo spento
+     * Android non mette in pausa l'app né spegne la rete. Si ferma quando non serve più.
+     */
+    private fun refreshSession() {
+        val app = getApplication<Application>()
+        when {
+            intervalRunning -> SessionService.update(app, "Intervallometro: scatto ${minOf(seqDone + 1, seqTotal)} di $seqTotal")
+            downloading -> SessionService.update(app, "Download: file $dlIndex di $dlTotal")
+            else -> SessionService.stop(app)
+        }
+    }
+
+    // live view sospeso quando l'app va in secondo piano (batteria del telefono e della fotocamera)
+    private var resumeLive = false
+
+    fun onAppVisible(visible: Boolean) {
+        if (!visible) {
+            if (liveOn && !intervalRunning) {
+                resumeLive = true
+                toggleLive()
+            }
+        } else if (resumeLive) {
+            resumeLive = false
+            if (connected && !liveOn) toggleLive()
+        }
+    }
+
     private fun cleanup() {
         pollJob?.cancel()
         liveJob?.cancel()
@@ -493,6 +521,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         intervalRunning = false
         seqPhase = SeqPhase.IDLE
         downloading = false
+        resumeLive = false
+        SessionService.stop(getApplication())
         files.clear()
         thumbs.clear()
         thumbLoading.clear()
@@ -674,7 +704,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         lastFrame = SystemClock.elapsedRealtime()
                         frames.trySend(Frame(jpg, asked))
                     } else {
-                        if (SystemClock.elapsedRealtime() - lastFrame > 15_000) throw IOException("nessun fotogramma ricevuto")
+                        // 20 s: lascia a Canon il tempo di provare tutte le uscite del live view
+                        if (SystemClock.elapsedRealtime() - lastFrame > 20_000) throw IOException("nessun fotogramma ricevuto")
                         // fotogramma non ancora pronto: si riprova quasi subito
                         delay(15)
                     }
@@ -1000,6 +1031,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         intervalRunning = true
         seqDone = 0
         seqTotal = count
+        refreshSession()
         intervalJob = viewModelScope.launch {
             try {
                 for (i in 1..count) {
@@ -1020,6 +1052,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         shotTick++
                     }
                     seqDone = i
+                    refreshSession()
                     log("$label completato")
                     if (i < count && pauseMs > 0) {
                         countdown(pauseMs, SeqPhase.WAITING) { left -> "Prossimo scatto tra ${left}s" }
@@ -1035,6 +1068,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 intervalRunning = false
                 seqPhase = SeqPhase.IDLE
                 seqPhaseFraction = 0f
+                refreshSession()
             }
         }
     }
@@ -1214,6 +1248,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             var ok = 0
             for ((i, f) in list.withIndex()) {
                 dlIndex = i + 1
+                refreshSession()
                 galleryStatus = f.name
                 try {
                     withContext(Dispatchers.IO) {
@@ -1240,6 +1275,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             selected = emptySet()
             downloading = false
             dlFraction = 1f
+            refreshSession()
         }
     }
 

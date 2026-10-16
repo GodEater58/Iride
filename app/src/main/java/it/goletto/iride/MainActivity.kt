@@ -35,7 +35,8 @@ class MainActivity : ComponentActivity() {
             if (savedInstanceState == null) vm.runScene(scene)
         } else {
             val perms = if (Build.VERSION.SDK_INT >= 33) {
-                arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+                // notifiche: avanzamento dell'intervallometro a schermo spento
+                arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES, Manifest.permission.POST_NOTIFICATIONS)
             } else {
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
             }
@@ -55,5 +56,16 @@ class MainActivity : ComponentActivity() {
                 IrideApp(vm)
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        vm.onAppVisible(true)
+    }
+
+    override fun onStop() {
+        // una rotazione dello schermo non è un'uscita dall'app: il live view resta acceso
+        if (!isChangingConfigurations) vm.onAppVisible(false)
+        super.onStop()
     }
 }
