@@ -205,6 +205,8 @@ fun ConnectScreen(vm: MainViewModel) {
                 }
             }
         }
+        Spacer(Modifier.height(16.dp))
+        GhostButton("Prova senza fotocamera (demo)", vm::connectDemo, Modifier.fillMaxWidth(), icon = IrideIcons.Star, enabled = !vm.busy)
         Spacer(Modifier.height(32.dp))
     }
 }

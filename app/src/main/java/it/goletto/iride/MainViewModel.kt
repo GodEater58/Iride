@@ -32,6 +32,7 @@ import it.goletto.iride.camera.CamFile
 import it.goletto.iride.camera.CameraDriver
 import it.goletto.iride.camera.Capabilities
 import it.goletto.iride.camera.DriverFactory
+import it.goletto.iride.camera.DemoDriver
 import it.goletto.iride.camera.ExpoKey
 import it.goletto.iride.camera.ExposureState
 import it.goletto.iride.camera.LvQuality
@@ -99,6 +100,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleNight() {
         night = !night
+        prefs.edit().putBoolean("night", night).apply()
+    }
+
+    private fun setNight(on: Boolean) {
+        night = on
         prefs.edit().putBoolean("night", night).apply()
     }
 
@@ -355,6 +361,79 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         usbCamera = if (usb.supported) usb.find()?.name else null
     }
 
+    // ---------------------------------------------------------------- modalità demo
+
+    /** Collegata alla fotocamera dimostrativa (nessuna fotocamera vera). */
+    var demo by mutableStateOf(false)
+        private set
+    /** Richieste dall'esterno (scene della guida): scheda da aprire, ghiera da mostrare, scorrimento. */
+    var requestedTab by mutableStateOf<Int?>(null)
+        private set
+    var requestedDial by mutableStateOf<ExpoKey?>(null)
+        private set
+    var scrollToInterval by mutableIntStateOf(0)
+        private set
+
+    fun consumeTab() { requestedTab = null }
+    fun consumeDial() { requestedDial = null }
+
+    /** Prova l'app senza fotocamera: tutto funziona con una fotocamera simulata. */
+    fun connectDemo() {
+        if (busy || connected) return
+        demo = true
+        log("Modalità demo: fotocamera simulata")
+        onConnected(DemoDriver(), usbLink = false)
+        cameraHost = "demo"
+    }
+
+    /**
+     * Prepara una schermata della guida (avvio con l'extra "scene"): usata dall'emulatore
+     * su GitHub per fotografare l'app sempre aggiornata.
+     */
+    fun runScene(name: String) {
+        viewModelScope.launch {
+            setNight(name == "night")
+            if (name == "connect") {
+                brand = Brand.CANON
+                mode = Mode.HOTSPOT
+                return@launch
+            }
+            if (lvQuality != LvQuality.BALANCED) {
+                lvQuality = LvQuality.BALANCED
+                prefs.edit().putString("lvq", lvQuality.name).apply()
+            }
+            connectDemo()
+            delay(800)
+            when (name) {
+                "shoot", "night" -> toggleLive()
+                "dial" -> requestedDial = ExpoKey.TV
+                "stars" -> {
+                    toggleLive()
+                    delay(2500)
+                    toggleStarAssist()
+                    delay(1000)
+                    tapViewfinder(0.52f, 0.45f)
+                    delay(2500)
+                    // avvicinamento al fuoco con un piccolo superamento, come si fa a mano
+                    repeat(4) { focusStep(2); delay(900) }
+                    repeat(2) { focusStep(-1); delay(900) }
+                }
+                "interval" -> {
+                    applyPreset(presets.first())
+                    delay(1200)
+                    scrollToInterval++
+                }
+                "gallery" -> {
+                    requestedTab = 1
+                    delay(3500)
+                    selected = files.filter { it.isRaw }.take(3).map { it.id }.toSet()
+                    subfolder = "Light"
+                }
+                "log" -> requestedTab = 2
+            }
+        }
+    }
+
     private fun onConnected(cam: CameraDriver, usbLink: Boolean) {
         val target = if (usbLink) "USB" else DriverFactory.lastHost
         camera = cam
@@ -402,6 +481,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         net.release()
         connected = false
         viaUsb = false
+        demo = false
         liveOn = false
         focusing = false
         liveFrame = null
@@ -1155,7 +1235,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             val dest = "Download/Iride" + if (sub.isNotEmpty()) "/$sub" else ""
-            galleryStatus = "Scaricati $ok di ${list.size} file in $dest"
+            galleryStatus = if (demo) "Demo: download di $ok file simulato" else "Scaricati $ok di ${list.size} file in $dest"
             log(galleryStatus)
             selected = emptySet()
             downloading = false
@@ -1170,6 +1250,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         sub: String,
         progress: (Long, Long) -> Unit,
     ) {
+        if (demo) {
+            // fotocamera simulata: nessun file finto sul telefono
+            cam.download(f, object : java.io.OutputStream() { override fun write(b: Int) = Unit }, progress)
+            return
+        }
         val ext = f.name.substringAfterLast('.', "").lowercase(Locale.ROOT)
         val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
         val values = ContentValues().apply {

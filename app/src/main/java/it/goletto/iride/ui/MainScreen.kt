@@ -58,6 +58,13 @@ fun IrideApp(vm: MainViewModel) {
 private fun MainScreen(vm: MainViewModel) {
     val p = LocalIride.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val req = vm.requestedTab
+    LaunchedEffect(req) {
+        if (req != null) {
+            tab = req
+            vm.consumeTab()
+        }
+    }
     Column(
         Modifier
             .fillMaxSize()
@@ -105,7 +112,7 @@ private fun TopBar(vm: MainViewModel) {
         Column(Modifier.weight(1f)) {
             Text(vm.model, style = MaterialTheme.typography.titleMedium, color = p.text, maxLines = 1)
             Text(
-                if (vm.viaUsb) "Via cavo USB" else if (vm.mode == MainViewModel.Mode.CAMERA_WIFI) "Wi-Fi della fotocamera, ${vm.cameraHost}" else "Via hotspot, ${vm.cameraHost}",
+                if (vm.demo) "Modalità demo: fotocamera simulata" else if (vm.viaUsb) "Via cavo USB" else if (vm.mode == MainViewModel.Mode.CAMERA_WIFI) "Wi-Fi della fotocamera, ${vm.cameraHost}" else "Via hotspot, ${vm.cameraHost}",
                 style = MaterialTheme.typography.labelSmall,
                 color = p.muted,
             )

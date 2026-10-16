@@ -2,6 +2,13 @@
 
 Ogni versione corrisponde a una build nella pagina Releases (l'APK si installa sopra la precedente).
 
+## 0.9.0 (16/10/2026)
+
+Modalità demo e schermate automatiche per la guida.
+
+- **Prova senza fotocamera (demo)**, in fondo alla schermata di collegamento: una fotocamera simulata con live view di un cielo stellato, parametri, intervallometro, galleria e assistente stelle (la messa a fuoco a passi sfoca e rimette a fuoco le stelle davvero). Il download è solo simulato: nessun file finto sul telefono
+- Le schermate della guida si generano da sole su GitHub: un emulatore Android avvia Iride in modalità demo e fotografa ogni schermata (`scripts/screenshots.sh`, flusso «Schermate della guida»)
+
 ## 0.8.1 (16/10/2026)
 
 Verifica per la Nikon D7200 (e le Nikon con Wi-Fi integrato).

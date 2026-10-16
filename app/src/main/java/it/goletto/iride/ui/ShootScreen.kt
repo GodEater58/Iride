@@ -80,6 +80,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -102,10 +104,22 @@ import java.util.Locale
 @Composable
 fun ShootScreen(vm: MainViewModel) {
     var dialFor by remember { mutableStateOf<ExpoKey?>(null) }
+    val scroll = rememberScrollState()
+    var intervalTop by remember { mutableFloatStateOf(0f) }
+    val reqDial = vm.requestedDial
+    LaunchedEffect(reqDial) {
+        if (reqDial != null) {
+            dialFor = reqDial
+            vm.consumeDial()
+        }
+    }
+    LaunchedEffect(vm.scrollToInterval) {
+        if (vm.scrollToInterval > 0) scroll.animateScrollTo(intervalTop.toInt())
+    }
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(4.dp))
@@ -117,7 +131,7 @@ fun ShootScreen(vm: MainViewModel) {
         Spacer(Modifier.height(20.dp))
         ShutterRow(vm)
         Spacer(Modifier.height(28.dp))
-        Hairline()
+        Hairline(Modifier.onGloballyPositioned { intervalTop = it.positionInParent().y })
         Spacer(Modifier.height(20.dp))
         Intervalometer(vm)
         Spacer(Modifier.height(24.dp))

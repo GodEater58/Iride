@@ -29,12 +29,18 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
 
-        val perms = if (Build.VERSION.SDK_INT >= 33) {
-            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+        // scena della guida (emulatore su GitHub): niente finestra dei permessi sopra la schermata
+        val scene = intent?.getStringExtra("scene")
+        if (scene != null) {
+            if (savedInstanceState == null) vm.runScene(scene)
         } else {
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            val perms = if (Build.VERSION.SDK_INT >= 33) {
+                arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+            } else {
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+            permissionLauncher.launch(perms)
         }
-        permissionLauncher.launch(perms)
 
         setContent {
             IrideTheme(night = vm.night) {

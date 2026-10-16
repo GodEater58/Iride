@@ -1,6 +1,6 @@
 # Iride
 
-App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più completa alle app dei produttori (Camera Connect, SnapBridge, Imaging Edge…). Versione attuale: **0.8.1**.
+App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più completa alle app dei produttori (Camera Connect, SnapBridge, Imaging Edge…). Versione attuale: **0.9**.
 
 ## Marche supportate
 
@@ -35,6 +35,7 @@ App Android per il controllo remoto delle fotocamere via Wi-Fi, alternativa più
 | Download dei **RAW originali** | Camera Connect li converte in JPEG |
 | Sottocartelle Light / Dark / Flat / Bias | File salvati in `Download/Iride/<cartella>` |
 | Modalità notte | Rosso su nero per non perdere l'adattamento al buio |
+| Modalità demo | «Prova senza fotocamera»: tutte le schermate con una fotocamera simulata |
 | Registro | Ogni passaggio del collegamento, errori in rosso, tasto Copia |
 
 Lo storico delle versioni è in [CHANGELOG.md](CHANGELOG.md).
