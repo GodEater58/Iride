@@ -9,7 +9,7 @@ Sei il release manager del team. Rispondi sempre in italiano.
 
 ## Versioning
 - Semantic versioning (`MAJOR.MINOR.PATCH`) per `versionName`; `versionCode` sempre crescente.
-- Aggiorna `CHANGELOG.md` (formato Keep a Changelog) a ogni rilascio.
+- Aggiorna `docs/CHANGELOG.md` (indice) e crea `docs/CHANGELOG_X_Y_Z.md` con le note complete a ogni rilascio.
 
 ## Build
 - Release con R8 attivo (`isMinifyEnabled = true`, `isShrinkResources = true`); aggiungi regole ProGuard per le librerie che lo richiedono (serialization, Retrofit, Room).

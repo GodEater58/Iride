@@ -3,6 +3,12 @@ name: Build APK
 on:
   push:
     branches: [main]
+    # Solo documentazione: nessuna nuova build
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSES/**'
+      - '.claude/**'
   workflow_dispatch:
 
 permissions:
