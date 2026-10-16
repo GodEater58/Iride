@@ -38,13 +38,16 @@ jobs:
       - name: Emulatore e schermate
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 31
-          target: google_apis
+          # immagine ATD (Automated Test Device): senza servizi Google, si avvia molto
+          # più in fretta; con google_apis 31 l'emulatore superava il tempo di avvio
+          api-level: 30
+          target: aosp_atd
+          channel: canary
           arch: x86_64
           profile: pixel_6
           cores: 4
           ram-size: 4096M
-          emulator-boot-timeout: 1200
+          emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
           script: bash scripts/screenshots.sh

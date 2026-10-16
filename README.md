@@ -7,7 +7,7 @@
 **Il telecomando della tua fotocamera: Wi-Fi con i dati mobili sempre attivi, tutte le marche, controllo completo, pensato per il cielo notturno.**
 
 [![Build APK](https://github.com/GodEater58/Iride/actions/workflows/build.yml/badge.svg)](https://github.com/GodEater58/Iride/actions/workflows/build.yml)
-![Versione](https://img.shields.io/badge/versione-0.9.1-f3a83b)
+![Versione](https://img.shields.io/badge/versione-0.10.0-f3a83b)
 ![Min SDK](https://img.shields.io/badge/Android-10%2B-26292d)
 ![Marche](https://img.shields.io/badge/marche-6%20%2B%20PTP-e5484d)
 
@@ -31,12 +31,14 @@
 | 📶 | **Collegamento** | Hotspot del telefono, stessa rete o Wi-Fi della fotocamera tenuto "locale" all'app: **i dati mobili restano attivi**. Ricerca automatica delle porte o IP manuale |
 | 🔌 | **Cavo USB** | Facoltativo, con adattatore OTG: live view quasi istantaneo, stessi comandi del Wi-Fi |
 | 🎛️ | **Parametri** | Tempo, diaframma, ISO, compensazione, bianco e modo dal telefono; scatto con autofocus attivabile |
-| 🖼️ | **Live view** | Fluido / Bilanciato / Dettaglio, indicatore fps e ritardo, griglia, pizzica per zoom, AF sul mirino |
+| 🖼️ | **Live view** | Fluido / Bilanciato / Dettaglio, indicatore fps e ritardo, griglia, **istogramma**, **focus peaking**, pizzica per zoom, AF sul mirino |
+| 🎚️ | **Bracketing** | 3, 5 o 7 scatti a 1 o 2 EV: tempo in M, compensazione negli altri modi |
 | ✨ | **Stelle** | Misura HFR con grafico, zoom 5×/10× sul punto toccato (Canon), passi di messa a fuoco dal telefono |
-| ⏱️ | **Intervallometro** | Preset Via Lattea, Deep sky, Timelapse, Dark frame; posa B oltre i 30 s; **continua a schermo spento** |
+| ⏱️ | **Intervallometro** | Preset Via Lattea, Deep sky, Timelapse, Dark, Flat, Bias; posa B oltre i 30 s; ritardo iniziale; **continua a schermo spento**, avviso a fine sequenza |
+| 🔁 | **Riconnessione** | Se la connessione cade riprova da sola e riprende la sequenza dallo scatto interrotto |
 | 🌌 | **Via Lattea** | Dall'obiettivo montato: tempo massimo (regola NPF), diaframma, ISO e bianco, applicabili con un tasto |
-| 🗂️ | **Galleria** | Per giorno, filtro RAW/JPG, selezione multipla, **RAW originali** in `Download/Iride/Light·Dark·Flat·Bias` |
-| 🌙 | **Notte e demo** | Rosso su nero per non perdere l'adattamento al buio; «Prova senza fotocamera» con fotocamera simulata |
+| 🗂️ | **Galleria** | Per giorno, filtro RAW/JPG, selezione multipla, **RAW originali** in `Download/Iride/Light·Dark·Flat·Bias` (cartella scelta dal preset) |
+| 🌙 | **Notte e demo** | Rosso su nero, live view e miniature compresi, per non perdere l'adattamento al buio; «Prova senza fotocamera» con fotocamera simulata |
 
 ## Marche supportate
 
@@ -77,7 +79,7 @@ Le istruzioni per le altre marche sono nella schermata di collegamento («Come p
 
 | Situazione | Cosa sapere |
 |---|---|
-| Un solo collegamento | Le fotocamere PTP/IP accettano una connessione alla volta: se fallisce, spegni e riaccendi il Wi-Fi della fotocamera |
+| Un solo collegamento | Le fotocamere PTP/IP accettano una connessione alla volta: se fallisce (anche la riconnessione automatica), spegni e riaccendi il Wi-Fi della fotocamera |
 | Wi-Fi della fotocamera lento | Sulla 6D un RAW può richiedere fino a 20 s; «Fluido» per inquadrare, «Dettaglio» per la messa a fuoco (o il cavo USB) |
 | Sony a7 IV e successive | Disattiva l'autenticazione di accesso nel menu Rete |
 | Nikon con Wi-Fi integrato (D7200, D750, D5300…) | Usa «Wi-Fi fotocamera»; per il live view ghiera su P/A/S/M e tempo diverso da posa B |
@@ -88,7 +90,7 @@ Le istruzioni per le altre marche sono nella schermata di collegamento («Come p
 
 | Cartella | Contenuto |
 |---|---|
-| `app/…/camera/` | Modello comune (`CameraDriver`, esposizione, file), `DriverFactory`, assistente stelle (`StarMeter`), consigli Via Lattea (`SkyAdvisor`), fotocamera demo |
+| `app/…/camera/` | Modello comune (`CameraDriver`, esposizione, file), `DriverFactory`, assistente stelle (`StarMeter`), istogramma e peaking (`LiveAnalyzer`), consigli Via Lattea (`SkyAdvisor`), fotocamera demo |
 | `app/…/ptp/` | Canale PTP (`PtpTransport`: Wi-Fi `PtpIpClient`, cavo `PtpUsbClient`) e driver Canon, Nikon, Sony, Fujifilm, PTP generico |
 | `app/…/http/` | Driver Sony (API remota), Olympus, Panasonic |
 | `app/…/net/` | Wi-Fi della fotocamera "locale" all'app, ricerca, Wi-Fi a bassa latenza, `UsbLink` |

@@ -4,6 +4,7 @@ Dalla più recente. Ogni voce rimanda alle note complete; ogni versione è una b
 
 | Versione | Data | Novità principali |
 |---|---|---|
+| [0.10.0](CHANGELOG_0_10_0.md) | 16/10/2026 | istogramma, focus peaking, bracketing, preset Flat e Bias, ritardo iniziale, riconnessione automatica con ripresa della sequenza, live view rosso di notte. |
 | [0.9.1](CHANGELOG_0_9_1.md) | 16/10/2026 | intervallometro e download continuano a schermo spento (servizio con notifica), live view sospeso quando esci dall'app. |
 | [0.9.0](CHANGELOG_0_9_0.md) | 16/10/2026 | modalità demo senza fotocamera (cielo stellato simulato), schermate automatiche per la guida. |
 | [0.8.1](CHANGELOG_0_8_1.md) | 16/10/2026 | Nikon D7200 e Wi-Fi integrato: proprietà Nikon lette, motivo del live view vietato nel Registro. |
