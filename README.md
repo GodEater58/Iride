@@ -7,7 +7,7 @@
 **Il telecomando della tua fotocamera: Wi-Fi con i dati mobili sempre attivi, tutte le marche, controllo completo, pensato per il cielo notturno.**
 
 [![Build APK](https://github.com/GodEater58/Iride/actions/workflows/build.yml/badge.svg)](https://github.com/GodEater58/Iride/actions/workflows/build.yml)
-![Versione](https://img.shields.io/badge/versione-0.10.0-f3a83b)
+![Versione](https://img.shields.io/badge/versione-0.10.1-f3a83b)
 ![Min SDK](https://img.shields.io/badge/Android-10%2B-26292d)
 ![Marche](https://img.shields.io/badge/marche-6%20%2B%20PTP-e5484d)
 
@@ -82,7 +82,7 @@ Le istruzioni per le altre marche sono nella schermata di collegamento («Come p
 | Un solo collegamento | Le fotocamere PTP/IP accettano una connessione alla volta: se fallisce (anche la riconnessione automatica), spegni e riaccendi il Wi-Fi della fotocamera |
 | Wi-Fi della fotocamera lento | Sulla 6D un RAW può richiedere fino a 20 s; «Fluido» per inquadrare, «Dettaglio» per la messa a fuoco (o il cavo USB) |
 | Sony a7 IV e successive | Disattiva l'autenticazione di accesso nel menu Rete |
-| Nikon con Wi-Fi integrato (D7200, D750, D5300…) | Usa «Wi-Fi fotocamera»; per il live view ghiera su P/A/S/M e tempo diverso da posa B |
+| Nikon con Wi-Fi integrato (D7200, D750, D5300…) | Scegli la marca Nikon e «Wi-Fi fotocamera»; chiave vuota se non hai messo una password con l'app Nikon; per il live view ghiera su P/A/S/M e tempo diverso da posa B |
 | Nikon Z / SnapBridge | L'abbinamento Bluetooth potrebbe impedire il collegamento (non verificato) |
 | Fujifilm | Dimensione del live view non regolabile (le fonti non concordano sul codice) |
 

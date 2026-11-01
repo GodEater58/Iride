@@ -175,8 +175,10 @@ object DriverFactory {
         socket: java.net.Socket? = null,
     ): CameraDriver {
         val client = PtpIpClient(socketFactory, log)
+        // con la marca Nikon scelta: sequenza di collegamento e identificativo adatti al Wi-Fi Nikon
+        val nikon = requested == Brand.NIKON
         try {
-            client.connect(host, guid, friendlyName, socket)
+            client.connect(host, if (nikon) PtpIpClient.NIKON_GUID else guid, friendlyName, socket, nikon)
             return ptpDriver(requested, client, log)
         } catch (e: Exception) {
             runCatching { client.close() }

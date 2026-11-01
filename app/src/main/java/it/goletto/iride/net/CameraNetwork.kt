@@ -43,6 +43,10 @@ class CameraNetwork(context: Context) {
     var network: Network? = null
         private set
 
+    /** Chiamato quando Android chiude il Wi-Fi della fotocamera (non quando lo chiude Iride). */
+    @Volatile
+    var lostListener: (() -> Unit)? = null
+
     val supportsConcurrentWifi: Boolean
         get() = Build.VERSION.SDK_INT >= 31 && wm.isStaConcurrencyForLocalOnlyConnectionsSupported
 
@@ -67,7 +71,10 @@ class CameraNetwork(context: Context) {
                 }
 
                 override fun onLost(n: Network) {
-                    if (n == network) network = null
+                    if (n == network) {
+                        network = null
+                        lostListener?.invoke()
+                    }
                 }
             }
             callback = cb

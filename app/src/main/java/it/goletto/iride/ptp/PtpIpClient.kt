@@ -53,13 +53,18 @@ class PtpIpClient(
     /**
      * Si collega alla fotocamera. Se [preconnected] è valorizzato usa quella connessione
      * (già aperta dalla ricerca) invece di aprirne una seconda: le Canon ne accettano una sola.
+     *
+     * Con [nikon] segue la sequenza che usano i programmi funzionanti col Wi-Fi delle Nikon
+     * (airmtp, NikonLink): una breve pausa dopo ogni apertura e una prova sul canale eventi.
      */
-    fun connect(host: String, guid: ByteArray, friendlyName: String, preconnected: Socket? = null) {
+    fun connect(host: String, guid: ByteArray, friendlyName: String, preconnected: Socket? = null, nikon: Boolean = false) {
         val s = preconnected ?: socketFactory.createSocket().also {
             it.tcpNoDelay = true
             it.receiveBufferSize = 1 shl 20
             it.connect(InetSocketAddress(host, PtpIp.PORT), 8000)
         }
+        // Nikon: se il primo pacchetto arriva subito dopo l'apertura la fotocamera chiude il collegamento
+        if (nikon) settle()
         // La fotocamera può chiedere conferma sul display: attesa lunga
         s.soTimeout = 90_000
         cmdSocket = s
@@ -90,6 +95,7 @@ class PtpIpClient(
         val e = socketFactory.createSocket()
         e.tcpNoDelay = true
         e.connect(InetSocketAddress(host, PtpIp.PORT), 5000)
+        if (nikon) settle()
         e.soTimeout = 15_000
         evtSocket = e
         val eIn = BufferedInputStream(e.getInputStream())
@@ -97,6 +103,7 @@ class PtpIpClient(
         writePacket(eOut, PtpIp.INIT_EVENT_REQUEST, Buf().u32(connNumber).bytes())
         val (eType, _) = readPacket(eIn)
         if (eType != PtpIp.INIT_EVENT_ACK) throw PtpException("Canale eventi rifiutato (tipo $eType)")
+        if (nikon) probe(e, eIn, eOut)
         e.soTimeout = 0
         isOpen = true
         startEventReader(eIn, eOut)
@@ -108,6 +115,48 @@ class PtpIpClient(
         }
     }
 
+    /** Pausa tra l'apertura della connessione e il primo pacchetto (Nikon). */
+    private fun settle() = Thread.sleep(NIKON_SETTLE_MS)
+
+    /**
+     * Nikon: prova (Probe Request) sul canale eventi prima di aprire la sessione. Senza, la
+     * sessione può bloccarsi; se la fotocamera non risponde basta una pausa di un secondo
+     * (come fa airmtp).
+     */
+    private fun probe(socket: Socket, inp: InputStream, out: OutputStream) {
+        socket.soTimeout = 3000
+        val end = System.currentTimeMillis() + 3000
+        try {
+            writePacket(out, PtpIp.PING, ByteArray(0))
+            while (System.currentTimeMillis() < end) {
+                val (type, p) = readPacket(inp)
+                when (type) {
+                    PtpIp.PONG -> {
+                        log("Canale eventi pronto")
+                        return
+                    }
+                    PtpIp.PING -> writePacket(out, PtpIp.PONG, ByteArray(0))
+                    PtpIp.EVENT -> queueEvent(p)
+                    else -> Unit
+                }
+            }
+            log("Nessuna risposta alla prova del canale eventi: attendo un secondo")
+            Thread.sleep(1000)
+        } catch (ex: java.net.SocketTimeoutException) {
+            log("Nessuna risposta alla prova del canale eventi: attendo un secondo")
+            Thread.sleep(1000)
+        }
+    }
+
+    /** payload di un evento: codice (u16), transazione (u32), parametri (u32...) */
+    private fun queueEvent(p: ByteArray) {
+        if (p.size < 2) return
+        val count = maxOf(0, (p.size - 6) / 4)
+        val params = IntArray(count) { le32(p, 6 + it * 4) }
+        events.add(PtpEvent(le16(p, 0), params))
+        while (events.size > 256) events.poll()
+    }
+
     private fun startEventReader(inp: InputStream, out: OutputStream) {
         thread(isDaemon = true, name = "iride-events") {
             try {
@@ -115,13 +164,7 @@ class PtpIpClient(
                     val (type, p) = readPacket(inp)
                     when (type) {
                         PtpIp.PING -> synchronized(out) { writePacket(out, PtpIp.PONG, ByteArray(0)) }
-                        PtpIp.EVENT -> if (p.size >= 2) {
-                            // payload: codice (u16), transazione (u32), parametri (u32...)
-                            val count = maxOf(0, (p.size - 6) / 4)
-                            val params = IntArray(count) { le32(p, 6 + it * 4) }
-                            events.add(PtpEvent(le16(p, 0), params))
-                            while (events.size > 256) events.poll()
-                        }
+                        PtpIp.EVENT -> queueEvent(p)
                         else -> Unit
                     }
                 }
@@ -247,5 +290,21 @@ class PtpIpClient(
     private fun writePacket(out: OutputStream, type: Int, payload: ByteArray) {
         out.write(Buf().u32(payload.size + 8).u32(type).raw(payload).bytes())
         out.flush()
+    }
+
+    companion object {
+        /** Pausa misurata da NikonLink: la fotocamera risponde in modo affidabile all'inizializzazione. */
+        private const val NIKON_SETTLE_MS = 350L
+
+        /**
+         * Identificativo fisso che annuncia l'app Nikon: con questo la fotocamera tratta il
+         * telefono come un dispositivo conosciuto (NikonLink; libgphoto2 e airmtp ne usano uno
+         * con lo stesso inizio).
+         */
+        val NIKON_GUID: ByteArray = byteArrayOf(
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+            0x88.toByte(), 0x99.toByte(), 0xAA.toByte(), 0xBB.toByte(),
+            0xCC.toByte(), 0xDD.toByte(), 0xEE.toByte(), 0xFF.toByte(),
+        )
     }
 }

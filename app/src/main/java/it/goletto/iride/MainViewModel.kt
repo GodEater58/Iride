@@ -107,6 +107,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val thumbLoading = HashSet<String>()
     private var lastPropsVersion = -1
 
+    init {
+        net.lostListener = { main.post { onWifiLost() } }
+    }
+
+    /**
+     * Android ha chiuso il Wi-Fi della fotocamera: lo si scrive nel Registro e si chiude subito
+     * il collegamento, così parte la riconnessione invece di aspettare un minuto di timeout.
+     */
+    private fun onWifiLost() {
+        log("Android ha chiuso il Wi-Fi della fotocamera")
+        val c = camera ?: return
+        if (!connected || viaUsb) return
+        thread(isDaemon = true) { runCatching { c.close() } }
+    }
+
     // Aspetto
     var night by mutableStateOf(prefs.getBoolean("night", false))
         private set

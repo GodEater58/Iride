@@ -175,15 +175,21 @@ fun ConnectScreen(vm: MainViewModel) {
                 SetupStep(1, firstStep(vm.brand))
                 if (vm.mode == MainViewModel.Mode.HOTSPOT) {
                     SetupStep(2, "Accendi l'hotspot del telefono e collega la fotocamera a quella rete.")
+                } else if (vm.brand == Brand.NIKON) {
+                    SetupStep(2, "Copia qui il nome della rete della fotocamera. Di fabbrica la rete Nikon non ha password: lascia vuota la chiave, a meno che tu non l'abbia impostata con l'app Nikon.")
                 } else {
                     SetupStep(2, "Scegli la modalità punto di accesso della fotocamera e copia qui nome della rete e chiave.")
                 }
                 SetupStep(3, "Premi Collega. Se l'indirizzo IP è vuoto, Iride cerca la fotocamera da solo.")
                 SetupStep(4, "Se la fotocamera chiede di confermare «Iride», premi OK.")
                 SetupStep(5, "Se un tentativo fallisce, spegni e riaccendi il Wi-Fi della fotocamera prima di riprovare: molte fotocamere accettano un solo collegamento alla volta.")
+                if (vm.brand == Brand.NIKON) {
+                    SetupStep(6, "Chiudi l'app Nikon (Wireless Mobile Utility o SnapBridge) prima di collegarti: se resta aperta può prendersi lei il collegamento.")
+                    SetupStep(7, "Se il telefono si stacca dalla rete della fotocamera, disattiva nelle impostazioni Wi-Fi il passaggio automatico ai dati mobili (Wi-Fi intelligente, WLAN+ o simili).")
+                }
                 if (vm.brand == Brand.AUTO) {
                     Text(
-                        "Con Automatico Iride cerca da sola Canon, Nikon, Sony, Fujifilm, Olympus/OM e Panasonic. Se conosci la marca, sceglierla rende il collegamento più rapido.",
+                        "Con Automatico Iride cerca da sola Canon, Nikon, Sony, Fujifilm, Olympus/OM e Panasonic. Se conosci la marca, sceglierla rende il collegamento più rapido. Con le Nikon scegli Nikon: Iride usa il collegamento adatto a queste fotocamere.",
                         style = MaterialTheme.typography.bodySmall,
                         color = p.muted,
                     )
